@@ -831,36 +831,28 @@ bool print_explain_for_slow_log(LEX *lex, THD *thd, String *str);
 
 class Select_limit_counters
 {
-  ha_rows offset_limit_cnt_start,
-    select_limit_cnt, offset_limit_cnt;
+  ha_rows select_limit_cnt, offset_limit_cnt;
 
   public:
     Select_limit_counters():
-       offset_limit_cnt_start(0),
        select_limit_cnt(0), offset_limit_cnt(0)
        {};
 
    void set_limit(ha_rows limit, ha_rows offset)
    {
-      offset_limit_cnt_start= offset;
+      offset_limit_cnt= offset;
       select_limit_cnt= limit;
-      if (select_limit_cnt + offset_limit_cnt_start >=
+      if (select_limit_cnt + offset_limit_cnt >=
           select_limit_cnt)
-        select_limit_cnt+= offset_limit_cnt_start;
+        select_limit_cnt+= offset_limit_cnt;
       else
         select_limit_cnt= HA_POS_ERROR;
-      reset();
    }
 
    void set_single_row()
    {
-     offset_limit_cnt= offset_limit_cnt_start= 0;
+     offset_limit_cnt= 0;
      select_limit_cnt= 1;
-   }
-
-   void reset()
-   {
-     offset_limit_cnt= offset_limit_cnt_start;
    }
 
    bool is_unlimited()
@@ -868,14 +860,9 @@ class Select_limit_counters
    void set_unlimited()
    { select_limit_cnt= HA_POS_ERROR; offset_limit_cnt= 0; }
 
-   bool check_and_move_offset()
+   bool check_offset(ha_rows sent)
    {
-     if (offset_limit_cnt)
-     {
-       offset_limit_cnt--;
-       return TRUE;
-     }
-     return FALSE;
+     return sent < offset_limit_cnt;
    }
    void remove_offset() { offset_limit_cnt= 0; }
 
