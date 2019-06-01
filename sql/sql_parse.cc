@@ -4451,6 +4451,7 @@ mysql_execute_command(THD *thd)
   case SQLCOM_INSERT:
   {
     WSREP_SYNC_WAIT(thd, WSREP_SYNC_WAIT_BEFORE_INSERT_REPLACE);
+    select_result *sel_result= NULL;
     DBUG_ASSERT(first_table == all_tables && first_table != 0);
 
     WSREP_SYNC_WAIT(thd, WSREP_SYNC_WAIT_BEFORE_INSERT_REPLACE);
@@ -4471,9 +4472,43 @@ mysql_execute_command(THD *thd)
       break;
 
     MYSQL_INSERT_START(thd->query());
+
+  Protocol* UNINIT_VAR(save_protocol);
+  bool replaced_protocol= false;
+  
+  if (!thd->lex->returning_list.is_empty())
+  {
+    status_var_increment(thd->status_var.feature_insert_returning);
+
+    /* This is INSERT ... RETURNING. It will return output to the client */
+    if (thd->lex->analyze_stmt)
+    {
+      /*
+       Actually, it is ANALYZE .. INSERT .. RETURNING. We need to produce
+       output and then discard it.
+      */
+      sel_result= new (thd->mem_root) select_send_analyze(thd);
+      replaced_protocol= true;
+      save_protocol= thd->protocol;
+      thd->protocol= new Protocol_discard(thd);
+    }
+    else
+    {
+      if (!lex->result && !(sel_result= new (thd->mem_root) select_send(thd)))
+        goto error;
+    }
+  }
+
     res= mysql_insert(thd, all_tables, lex->field_list, lex->many_values,
-		      lex->update_list, lex->value_list,
-                      lex->duplicates, lex->ignore);
+                      lex->update_list, lex->value_list,
+                      lex->duplicates, lex->ignore,
+                      lex->result ? lex->result : sel_result);
+  if (replaced_protocol)
+  {
+    delete thd->protocol;
+    thd->protocol= save_protocol;
+  }
+  delete sel_result;
     MYSQL_INSERT_DONE(res, (ulong) thd->get_row_count_func());
     /*
       If we have inserted into a VIEW, and the base table has
@@ -4509,6 +4544,8 @@ mysql_execute_command(THD *thd)
   {
     WSREP_SYNC_WAIT(thd, WSREP_SYNC_WAIT_BEFORE_INSERT_REPLACE);
     select_insert *sel_result;
+    TABLE_LIST *save_first= NULL;
+    select_result *result= NULL;
     bool explain= MY_TEST(lex->describe);
     DBUG_ASSERT(first_table == all_tables && first_table != 0);
     WSREP_SYNC_WAIT(thd, WSREP_SYNC_WAIT_BEFORE_UPDATE_DELETE);
@@ -4557,6 +4594,33 @@ mysql_execute_command(THD *thd)
         Only the INSERT table should be merged. Other will be handled by
         select.
       */
+
+   Protocol* UNINIT_VAR(save_protocol);
+   bool replaced_protocol= false;
+
+   if (!thd->lex->returning_list.is_empty())
+   {
+      status_var_increment(thd->status_var.feature_insert_returning);
+
+      /* This is INSERT ... RETURNING. It will return output to the client */
+      if (thd->lex->analyze_stmt)
+      {
+        /*
+          Actually, it is ANALYZE .. INSERT .. RETURNING. We need to produce
+          output and then discard it.
+        */
+        result= new (thd->mem_root) select_send_analyze(thd);
+        replaced_protocol= true;
+        save_protocol= thd->protocol;
+        thd->protocol= new Protocol_discard(thd);
+      }
+      else
+      {
+        if (!lex->result && !(result= new (thd->mem_root) select_send(thd)))
+          goto error;
+      }
+    }
+
       /* Skip first table, which is the table we are inserting in */
       TABLE_LIST *second_table= first_table->next_local;
       /*
@@ -4566,18 +4630,35 @@ mysql_execute_command(THD *thd)
         TODO: fix it by removing the front element (restoring of it should
         be done properly as well)
       */
+
+      /*
+        Also, if items are present in returning_list, then we need them to
+        to point to INSERT table during setup_fields() and setup_wild(). But
+        it gets masked before that. So we save the values in saved_first,
+        saved_table_list and saved_first_name_resolution_context before they
+        are masked. We will later swap the saved values with the masked values
+        if returning_list is not empty in INSERT...SELECT...RETURNING.
+      */
+
+      save_first= select_lex->table_list.first;
       select_lex->table_list.first= second_table;
-      select_lex->context.table_list= 
+      select_lex->context.saved_table_list= select_lex->context.table_list;
+      select_lex->context.saved_name_resolution_table=
+        select_lex->context.first_name_resolution_table;
+      select_lex->context.table_list=
         select_lex->context.first_name_resolution_table= second_table;
-      res= mysql_insert_select_prepare(thd);
-      if (!res && (sel_result= new (thd->mem_root) select_insert(thd,
-                                                             first_table,
-                                                             first_table->table,
-                                                             &lex->field_list,
-                                                             &lex->update_list,
-                                                             &lex->value_list,
-                                                             lex->duplicates,
-                                                             lex->ignore)))
+      res= mysql_insert_select_prepare(thd, lex->result ? lex->result : result);
+      if (!res &&
+          (sel_result= new (thd->mem_root)
+                       select_insert(thd, first_table,
+                                    first_table->table,
+                                    &lex->field_list,
+                                    &lex->update_list,
+                                    &lex->value_list,
+                                    lex->duplicates,
+                                    lex->ignore,
+                                    lex->result ? lex->result : result,
+                                    save_first)))
       {
         if (lex->analyze_stmt)
           ((select_result_interceptor*)sel_result)->disable_my_ok_calls();
@@ -4612,8 +4693,13 @@ mysql_execute_command(THD *thd)
           sel_result->abort_result_set();
         }
         delete sel_result;
+        delete result;
       }
-
+      if (replaced_protocol)
+      {
+        delete thd->protocol;
+        thd->protocol= save_protocol;
+      }
       if (!res && (explain || lex->analyze_stmt))
         res= thd->lex->explain->send_explain(thd);
 
@@ -7528,6 +7614,11 @@ void
 mysql_init_select(LEX *lex)
 {
   lex->init_select();
+  SELECT_LEX *select_lex= lex->current_select;
+  lex->returning_list.empty();
+  select_lex->init_select();
+  lex->wild= 0;
+  lex->exchange= 0;
 }
 
 
