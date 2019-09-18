@@ -7365,6 +7365,33 @@ wait_for_commit::register_wait_for_prior_commit(wait_for_commit *waitee)
 }
 
 
+int wait_for_commit::wait_for_prior_commit(THD *thd)
+{
+  /*
+     Quick inline check, to avoid function call and locking in the common case
+     where no wakeup is registered, or a registered wait was already signalled.
+   */
+  if (waitee)
+    return wait_for_prior_commit2(thd);
+  else
+  {
+    if (wakeup_error)
+      my_error(ER_PRIOR_COMMIT_FAILED, MYF(0));
+    else
+    {
+      rpl_group_info* rgi= thd->rgi_slave;
+      if (rgi && rgi->is_parallel_exec &&
+          rgi->parallel_entry->stop_on_error_sub_id < (uint64)ULONGLONG_MAX &&
+          rgi->gtid_sub_id >= rgi->parallel_entry->stop_on_error_sub_id)
+      {
+        my_error(ER_PRIOR_COMMIT_FAILED, MYF(0));
+        wakeup_error= ER_PRIOR_COMMIT_FAILED;
+      }
+    }
+    return wakeup_error;
+  }
+}
+
 /*
   Wait for commit of another transaction to complete, as already registered
   with register_wait_for_prior_commit(). If the commit already completed,
@@ -7387,6 +7414,17 @@ wait_for_commit::wait_for_prior_commit2(THD *thd)
   {
     if (wakeup_error)
       my_error(ER_PRIOR_COMMIT_FAILED, MYF(0));
+    else
+    {
+      rpl_group_info* rgi= thd->rgi_slave;
+      if (rgi && rgi->is_parallel_exec &&
+          rgi->parallel_entry->stop_on_error_sub_id < (uint64)ULONGLONG_MAX &&
+          rgi->gtid_sub_id >= rgi->parallel_entry->stop_on_error_sub_id)
+      {
+        my_error(ER_PRIOR_COMMIT_FAILED, MYF(0));
+        wakeup_error= ER_PRIOR_COMMIT_FAILED;
+      }
+    }
     goto end;
   }
   /*
