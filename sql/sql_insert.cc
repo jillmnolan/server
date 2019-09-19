@@ -1269,7 +1269,7 @@ values_loop_end:
     goto abort;
   if (thd->lex->analyze_stmt)
   {
-    retval= thd->lex->explain->send_explain(thd);
+    retval= 0;
     goto abort;
   }
 
@@ -3897,12 +3897,13 @@ select_insert::prepare(List<Item> &values, SELECT_LEX_UNIT *u)
 int select_insert::prepare2(JOIN *)
 {
   DBUG_ENTER("select_insert::prepare2");
-  if (thd->lex->current_select->options & OPTION_BUFFER_RESULT &&
-      thd->locked_tables_mode <= LTM_LOCK_TABLES &&
-      !thd->lex->describe)
-    table->file->ha_start_bulk_insert((ha_rows) 0);
   if (table->validate_default_values_of_unset_fields(thd))
     DBUG_RETURN(1);
+  if (thd->lex->describe)
+    DBUG_RETURN(0);
+  if (thd->lex->current_select->options & OPTION_BUFFER_RESULT &&
+      thd->locked_tables_mode <= LTM_LOCK_TABLES)
+    table->file->ha_start_bulk_insert((ha_rows) 0);
 
   /* Same as the other variants of INSERT */
   if (sel_result)

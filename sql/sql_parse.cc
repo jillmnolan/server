@@ -4508,6 +4508,8 @@ mysql_execute_command(THD *thd)
     delete thd->protocol;
     thd->protocol= save_protocol;
   }
+    if (!res && thd->lex->analyze_stmt)
+      res= thd->lex->explain->send_explain(thd);
   delete sel_result;
     MYSQL_INSERT_DONE(res, (ulong) thd->get_row_count_func());
     /*
