@@ -1921,8 +1921,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %type <item_basic_constant> text_literal
 
 %type <item_list>
-        opt_select_expressions expr_list
-        opt_udf_expr_list udf_expr_list when_list when_list_opt_else
+        expr_list opt_udf_expr_list udf_expr_list when_list when_list_opt_else
         ident_list ident_list_arg opt_expr_list
         decode_when_list_oracle
         execute_using
@@ -2059,7 +2058,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
         opt_persistent_stat_clause persistent_stat_spec
         persistent_column_stat_spec persistent_index_stat_spec
         table_column_list table_index_list table_index_name
-        check start checksum
+        check start checksum opt_returning
         field_list field_list_item kill key_def constraint_def
         keycache_list keycache_list_or_parts assign_to_keycache
         assign_to_keycache_parts
@@ -13462,10 +13461,8 @@ insert:
             Select->set_lock_for_tables($3, true);
             Lex->current_select= Lex->first_select_lex();
           }
-          insert_field_spec opt_insert_update opt_select_expressions
+          insert_field_spec opt_insert_update opt_returning
           {
-            if ($9)
-              Lex->returning_list= *($9);
             Lex->pop_select(); //main select
             if (Lex->check_main_unit_semantics())
               MYSQL_YYABORT;
@@ -13488,10 +13485,8 @@ replace:
             Select->set_lock_for_tables($3, true);
             Lex->current_select= Lex->first_select_lex();
           }
-          insert_field_spec opt_select_expressions
+          insert_field_spec opt_returning
           {
-            if ($7)
-              Lex->returning_list= *($7);
             Lex->pop_select(); //main select
             if (Lex->check_main_unit_semantics())
               MYSQL_YYABORT;
@@ -13548,8 +13543,8 @@ insert_table:
         ;
 
 insert_field_spec:
-          insert_values
-        | insert_field_list insert_values
+          insert_values {}
+        | insert_field_list insert_values {}
         | SET
           {
             LEX *lex=Lex;
@@ -13715,7 +13710,7 @@ expr_or_default:
         ;
 
 opt_insert_update:
-          /* empty */
+          /* empty */ {}
         | ON DUPLICATE_SYM { Lex->duplicates= DUP_UPDATE; }
           KEY_SYM UPDATE_SYM 
           {
@@ -13887,12 +13882,10 @@ single_multi:
           opt_where_clause
           opt_order_clause
           delete_limit_clause
-          opt_select_expressions 
+          opt_returning
           {
             if ($3)
               Select->order_list= *($3);
-            if($5)
-              Select->item_list= *($5);
             Lex->pop_select(); //main select
           }
         | table_wild_list
@@ -13925,15 +13918,14 @@ single_multi:
           }
         ;
 
-/*
-  Return NULL if the  rule is empty else return the list of items
-  in the select expression.
-*/
-opt_select_expressions:
-          /* empty */ {$$= NULL;}
+opt_returning:
+          /* empty */
+          {
+            Lex->returning_list.empty();
+          }
         | RETURNING_SYM select_item_list
           {
-            $$= $2;
+            Lex->returning_list= *($2);
           }
         ;
 

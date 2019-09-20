@@ -4472,9 +4472,7 @@ mysql_execute_command(THD *thd)
       break;
 
     MYSQL_INSERT_START(thd->query());
-
-    Protocol* UNINIT_VAR(save_protocol);
-    bool replaced_protocol= false;
+    Protocol* save_protocol=NULL;
 
     if (!thd->lex->returning_list.is_empty())
     {
@@ -4488,7 +4486,6 @@ mysql_execute_command(THD *thd)
           output and then discard it.
         */
         sel_result= new (thd->mem_root) select_send_analyze(thd);
-        replaced_protocol= true;
         save_protocol= thd->protocol;
         thd->protocol= new Protocol_discard(thd);
       }
@@ -4503,7 +4500,7 @@ mysql_execute_command(THD *thd)
                       lex->update_list, lex->value_list,
                       lex->duplicates, lex->ignore,
                       lex->result ? lex->result : sel_result);
-    if (replaced_protocol)
+    if (save_protocol)
     {
       delete thd->protocol;
       thd->protocol= save_protocol;
@@ -4546,7 +4543,6 @@ mysql_execute_command(THD *thd)
   {
     WSREP_SYNC_WAIT(thd, WSREP_SYNC_WAIT_BEFORE_INSERT_REPLACE);
     select_insert *sel_result;
-    TABLE_LIST *save_first= NULL;
     select_result *result= NULL;
     bool explain= MY_TEST(lex->describe);
     DBUG_ASSERT(first_table == all_tables && first_table != 0);
@@ -4597,8 +4593,7 @@ mysql_execute_command(THD *thd)
         select.
       */
 
-      Protocol* UNINIT_VAR(save_protocol);
-      bool replaced_protocol= false;
+      Protocol* save_protocol=NULL;
 
       if (!thd->lex->returning_list.is_empty())
       {
@@ -4612,7 +4607,6 @@ mysql_execute_command(THD *thd)
             output and then discard it.
           */
           result= new (thd->mem_root) select_send_analyze(thd);
-          replaced_protocol= true;
           save_protocol= thd->protocol;
           thd->protocol= new Protocol_discard(thd);
         }
@@ -4632,21 +4626,7 @@ mysql_execute_command(THD *thd)
         TODO: fix it by removing the front element (restoring of it should
         be done properly as well)
       */
-
-      /*
-        Also, if items are present in returning_list, then we need them to
-        to point to INSERT table during setup_fields() and setup_wild(). But
-        it gets masked before that. So we save the values in saved_first,
-        saved_table_list and saved_first_name_resolution_context before they
-        are masked. We will later swap the saved values with the masked values
-        if returning_list is not empty in INSERT...SELECT...RETURNING.
-      */
-
-      save_first= select_lex->table_list.first;
       select_lex->table_list.first= second_table;
-      select_lex->context.saved_table_list= select_lex->context.table_list;
-      select_lex->context.saved_name_resolution_table=
-        select_lex->context.first_name_resolution_table;
       select_lex->context.table_list=
         select_lex->context.first_name_resolution_table= second_table;
       res= mysql_insert_select_prepare(thd, lex->result ? lex->result : result);
@@ -4659,8 +4639,7 @@ mysql_execute_command(THD *thd)
                                     &lex->value_list,
                                     lex->duplicates,
                                     lex->ignore,
-                                    lex->result ? lex->result : result,
-                                    save_first)))
+                                    lex->result ? lex->result : result)))
       {
         if (lex->analyze_stmt)
           ((select_result_interceptor*)sel_result)->disable_my_ok_calls();
@@ -4695,9 +4674,9 @@ mysql_execute_command(THD *thd)
           sel_result->abort_result_set();
         }
         delete sel_result;
-        delete result;
       }
-      if (replaced_protocol)
+      delete result;
+      if (save_protocol)
       {
         delete thd->protocol;
         thd->protocol= save_protocol;
@@ -4734,10 +4713,9 @@ mysql_execute_command(THD *thd)
     unit->set_limit(select_lex);
 
     MYSQL_DELETE_START(thd->query());
-    Protocol * UNINIT_VAR(save_protocol);
-    bool replaced_protocol= false;
+    Protocol *save_protocol= NULL;
 
-    if (!select_lex->item_list.is_empty())
+    if (!lex->returning_list.is_empty())
     {
       /* This is DELETE ... RETURNING.  It will return output to the client */
       if (thd->lex->analyze_stmt)
@@ -4747,7 +4725,6 @@ mysql_execute_command(THD *thd)
           output and then discard it.
         */
         sel_result= new (thd->mem_root) select_send_analyze(thd);
-        replaced_protocol= true;
         save_protocol= thd->protocol;
         thd->protocol= new Protocol_discard(thd);
       }
@@ -4763,7 +4740,7 @@ mysql_execute_command(THD *thd)
                        unit->select_limit_cnt, select_lex->options,
                        lex->result ? lex->result : sel_result);
 
-    if (replaced_protocol)
+    if (save_protocol)
     {
       delete thd->protocol;
       thd->protocol= save_protocol;
@@ -7616,11 +7593,6 @@ void
 mysql_init_select(LEX *lex)
 {
   lex->init_select();
-  SELECT_LEX *select_lex= lex->current_select;
-  lex->returning_list.empty();
-  select_lex->init_select();
-  lex->wild= 0;
-  lex->exchange= 0;
 }
 
 

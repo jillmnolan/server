@@ -333,7 +333,7 @@ bool mysql_delete(THD *thd, TABLE_LIST *table_list, COND *conds,
   killed_state killed_status= NOT_KILLED;
   THD::enum_binlog_query_type query_type= THD::ROW_QUERY_TYPE;
   bool binlog_is_row;
-  bool with_select= !select_lex->item_list.is_empty();
+  bool with_select= !thd->lex->returning_list.is_empty();
   Explain_delete *explain;
   Delete_plan query_plan(thd->mem_root);
   Unique * deltempfile= NULL;
@@ -397,16 +397,14 @@ bool mysql_delete(THD *thd, TABLE_LIST *table_list, COND *conds,
   query_plan.table= table;
   query_plan.updating_a_view= MY_TEST(table_list->view);
 
-  if (mysql_prepare_delete(thd, table_list, select_lex->with_wild,
-                           select_lex->item_list, &conds,
-                           &delete_while_scanning))
+  if (mysql_prepare_delete(thd, table_list, &conds, &delete_while_scanning))
     DBUG_RETURN(TRUE);
 
   if (delete_history)
     table->vers_write= false;
 
   if (with_select)
-    (void) result->prepare(select_lex->item_list, NULL);
+    (void) result->prepare(thd->lex->returning_list, NULL);
 
   if (thd->lex->current_select->first_cond_optimization)
   {
@@ -731,7 +729,7 @@ bool mysql_delete(THD *thd, TABLE_LIST *table_list, COND *conds,
 
   if (with_select)
   {
-    if (unlikely(result->send_result_set_metadata(select_lex->item_list,
+    if (unlikely(result->send_result_set_metadata(thd->lex->returning_list,
                                                   Protocol::SEND_NUM_ROWS |
                                                   Protocol::SEND_EOF)))
       goto cleanup;
@@ -815,7 +813,7 @@ bool mysql_delete(THD *thd, TABLE_LIST *table_list, COND *conds,
         break;
       }
 
-      if (with_select && result->send_data(select_lex->item_list) < 0)
+      if (with_select && result->send_data(thd->lex->returning_list) < 0)
       {
         error=1;
         break;
@@ -1009,16 +1007,13 @@ got_error:
     mysql_prepare_delete()
     thd			- thread handler
     table_list		- global/local table list
-    wild_num            - number of wildcards used in optional SELECT clause 
-    field_list          - list of items in optional SELECT clause
     conds		- conditions
 
   RETURN VALUE
     FALSE OK
     TRUE  error
 */
-int mysql_prepare_delete(THD *thd, TABLE_LIST *table_list,
-                         uint wild_num, List<Item> &field_list, Item **conds,
+int mysql_prepare_delete(THD *thd, TABLE_LIST *table_list, Item **conds,
                          bool *delete_while_scanning)
 {
   Item *fake_conds= 0;
@@ -1028,12 +1023,9 @@ int mysql_prepare_delete(THD *thd, TABLE_LIST *table_list,
 
   *delete_while_scanning= true;
   thd->lex->allow_sum_func.clear_all();
-  if (setup_tables_and_check_access(thd,
-                                    &thd->lex->first_select_lex()->context,
-                                    &thd->lex->first_select_lex()->
-                                      top_join_list,
-                                    table_list, 
-                                    select_lex->leaf_tables, FALSE, 
+  if (setup_tables_and_check_access(thd, &select_lex->context,
+                                    &select_lex->top_join_list, table_list,
+                                    select_lex->leaf_tables, FALSE,
                                     DELETE_ACL, SELECT_ACL, TRUE))
     DBUG_RETURN(TRUE);
   if (table_list->vers_conditions.is_set())
@@ -1060,10 +1052,7 @@ int mysql_prepare_delete(THD *thd, TABLE_LIST *table_list,
       DBUG_RETURN(true);
   }
 
-  if ((wild_num && setup_wild(thd, table_list, field_list, NULL, wild_num,
-                              &select_lex->hidden_bit_fields)) ||
-      setup_fields(thd, Ref_ptr_array(),
-                   field_list, MARK_COLUMNS_READ, NULL, NULL, 0) ||
+  if (setup_returning_fields(thd, select_lex, table_list) ||
       setup_conds(thd, table_list, select_lex->leaf_tables, conds) ||
       setup_ftfuncs(select_lex))
     DBUG_RETURN(TRUE);
@@ -1087,7 +1076,7 @@ int mysql_prepare_delete(THD *thd, TABLE_LIST *table_list,
     fix_inner_refs(thd, all_fields, select_lex, select_lex->ref_pointer_array))
     DBUG_RETURN(TRUE);
 
-  select_lex->fix_prepare_information(thd, conds, &fake_conds); 
+  select_lex->fix_prepare_information(thd, conds, &fake_conds);
   DBUG_RETURN(FALSE);
 }
 

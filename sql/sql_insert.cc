@@ -81,7 +81,6 @@
 #include <my_bit.h>
 
 #include "debug_sync.h"
-#include <algorithm>
 
 #ifdef WITH_WSREP
 #include "wsrep_trans_observer.h" /* wsrep_start_transction() */
@@ -119,7 +118,6 @@ static bool check_view_insertability(THD *thd, TABLE_LIST *view);
 
   @returns false if success.
 */
-
 
 static bool check_view_single_update(List<Item> &fields, List<Item> *values,
                                      TABLE_LIST *view, table_map *map,
@@ -1097,17 +1095,11 @@ bool mysql_insert(THD *thd, TABLE_LIST *table_list,
       if (unlikely(error))
         break;
       /*
-        We send the rows after writing them to table so that the correct
-        information is sent to the client. Example INSERT...ON DUPLICATE
-        KEY UPDATE and values set to auto_increment. write_record
-        handles auto_increment updating values if there is a duplicate
-        key. We want to send the rows to the client only after these
-        operations are performed out. Otherwise it shows 0 to the client
-        if the fields that are incremented automatically are not given
-        explicitly and the irreplaced values in case of
-        ON DUPLICATE KEY UPDATE (even if the values are replaced or
-        incremented while writing record. Hence it shows different
-        result set to the client)
+        We send the row after writing it to the table so that the
+        correct values are sent to the client. Otherwise it won't show
+        autoinc values (generated inside the handler::ha_write()) and
+        values updated in ON DUPLICATE KEY UPDATE (handled inside
+        write_record()).
       */
       if (result && result->send_data(thd->lex->returning_list) < 0)
       {
@@ -1594,11 +1586,9 @@ bool mysql_prepare_insert(THD *thd, TABLE_LIST *table_list,
     table_list->next_local= 0;
     context->resolve_in_table_list_only(table_list);
 
-    if (!select_insert && !thd->lex->returning_list.is_empty())
-      res= setup_returning_fields(thd, select_lex, table_list);
-
-    res= res || setup_fields(thd, Ref_ptr_array(),
-                             *values, MARK_COLUMNS_READ, 0, NULL, 0) ||
+    res= setup_returning_fields(thd, select_lex, table_list) ||
+         setup_fields(thd, Ref_ptr_array(),
+                      *values, MARK_COLUMNS_READ, 0, NULL, 0) ||
           check_insert_fields(thd, context->table_list, fields, *values,
                               !insert_into_view, 0, &map);
 
@@ -3661,9 +3651,9 @@ select_insert::select_insert(THD *thd_arg, TABLE_LIST *table_list_par,
                              List<Item> *update_values,
                              enum_duplicates duplic,
                              bool ignore_check_option_errors,
-                             select_result *result,
-                             TABLE_LIST *save_first):
+                             select_result *result):
   select_result_interceptor(thd_arg),
+  sel_result(result),
   table_list(table_list_par), table(table_par), fields(fields_par),
   autoinc_value_of_last_inserted_row(0),
   insert_into_view(table_list_par && table_list_par->view != 0)
@@ -3675,8 +3665,6 @@ select_insert::select_insert(THD *thd_arg, TABLE_LIST *table_list_par,
   info.update_values= update_values;
   info.view= (table_list_par->view ? table_list_par : 0);
   info.table_list= table_list_par;
-  sel_result= result;
-  insert_table= save_first;
 }
 
 
@@ -3699,32 +3687,26 @@ select_insert::prepare(List<Item> &values, SELECT_LEX_UNIT *u)
   */
   lex->current_select= lex->first_select_lex();
 
-  /*
-    We want the returning_list to point to insert table. But the context
-    is masked. So we swap it with the context saved during parsing stage.
-  */
   if(sel_result)
   {
-    std::swap(insert_table,select_lex->table_list.first);
-    std::swap(select_lex->context.saved_table_list,
-              select_lex->context.table_list);
-    std::swap(select_lex->context.saved_name_resolution_table,
-              select_lex->context.first_name_resolution_table);
+    /*
+      To resolve fields in the ...SELECT part, mysql_execute_command has
+      removed the insert table from the name resolution list. Now for
+      ...RETURNING we need it back, temporarily
+    */
+    select_lex->table_list.first=
+    select_lex->context.table_list=
+    select_lex->context.first_name_resolution_table= table_list;
     /*
       Perform checks for LEX::returning_list like we do for
       other variant of INSERT.
     */
     res= setup_returning_fields(thd, select_lex, table_list);
 
-    /*
-      Swap it back to retore the previous state for the rest of the
-      function.
-    */
-    std::swap(insert_table,select_lex->table_list.first);
-    std::swap(select_lex->context.saved_table_list,
-              select_lex->context.table_list);
-    std::swap(select_lex->context.saved_name_resolution_table,
-              select_lex->context.first_name_resolution_table);
+    /* Restore the previous state, removing insert table from the list */
+    select_lex->table_list.first=
+    select_lex->context.table_list=
+    select_lex->context.first_name_resolution_table= table_list->next_local;
   }
 
   res= res || (setup_fields(thd, Ref_ptr_array(),
@@ -3927,7 +3909,6 @@ select_insert::~select_insert()
 {
   DBUG_ENTER("~select_insert");
   sel_result= NULL;
-  insert_table= NULL;
   if (table && table->is_created())
   {
     table->next_number_field=0;

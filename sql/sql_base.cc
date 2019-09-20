@@ -7690,7 +7690,7 @@ int setup_returning_fields(THD* thd, SELECT_LEX* select_lex,
                                                select_lex->with_wild,
                                                &select_lex->hidden_bit_fields))
          || setup_fields(thd, Ref_ptr_array(), thd->lex->returning_list,
-                          MARK_COLUMNS_READ, 0, NULL, 0));
+                          MARK_COLUMNS_READ, NULL, NULL, false));
 }
 
 
