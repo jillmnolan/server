@@ -4473,44 +4473,44 @@ mysql_execute_command(THD *thd)
 
     MYSQL_INSERT_START(thd->query());
 
-  Protocol* UNINIT_VAR(save_protocol);
-  bool replaced_protocol= false;
-  
-  if (!thd->lex->returning_list.is_empty())
-  {
-    status_var_increment(thd->status_var.feature_insert_returning);
+    Protocol* UNINIT_VAR(save_protocol);
+    bool replaced_protocol= false;
 
-    /* This is INSERT ... RETURNING. It will return output to the client */
-    if (thd->lex->analyze_stmt)
+    if (!thd->lex->returning_list.is_empty())
     {
-      /*
-       Actually, it is ANALYZE .. INSERT .. RETURNING. We need to produce
-       output and then discard it.
-      */
-      sel_result= new (thd->mem_root) select_send_analyze(thd);
-      replaced_protocol= true;
-      save_protocol= thd->protocol;
-      thd->protocol= new Protocol_discard(thd);
+      status_var_increment(thd->status_var.feature_insert_returning);
+
+      /* This is INSERT ... RETURNING. It will return output to the client */
+      if (thd->lex->analyze_stmt)
+      {
+        /*
+          Actually, it is ANALYZE .. INSERT .. RETURNING. We need to produce
+          output and then discard it.
+        */
+        sel_result= new (thd->mem_root) select_send_analyze(thd);
+        replaced_protocol= true;
+        save_protocol= thd->protocol;
+        thd->protocol= new Protocol_discard(thd);
+      }
+      else
+      {
+        if (!lex->result && !(sel_result= new (thd->mem_root) select_send(thd)))
+          goto error;
+      }
     }
-    else
-    {
-      if (!lex->result && !(sel_result= new (thd->mem_root) select_send(thd)))
-        goto error;
-    }
-  }
 
     res= mysql_insert(thd, all_tables, lex->field_list, lex->many_values,
                       lex->update_list, lex->value_list,
                       lex->duplicates, lex->ignore,
                       lex->result ? lex->result : sel_result);
-  if (replaced_protocol)
-  {
-    delete thd->protocol;
-    thd->protocol= save_protocol;
-  }
+    if (replaced_protocol)
+    {
+      delete thd->protocol;
+      thd->protocol= save_protocol;
+    }
     if (!res && thd->lex->analyze_stmt)
       res= thd->lex->explain->send_explain(thd);
-  delete sel_result;
+    delete sel_result;
     MYSQL_INSERT_DONE(res, (ulong) thd->get_row_count_func());
     /*
       If we have inserted into a VIEW, and the base table has
@@ -4597,31 +4597,31 @@ mysql_execute_command(THD *thd)
         select.
       */
 
-   Protocol* UNINIT_VAR(save_protocol);
-   bool replaced_protocol= false;
+      Protocol* UNINIT_VAR(save_protocol);
+      bool replaced_protocol= false;
 
-   if (!thd->lex->returning_list.is_empty())
-   {
-      status_var_increment(thd->status_var.feature_insert_returning);
+      if (!thd->lex->returning_list.is_empty())
+      {
+        status_var_increment(thd->status_var.feature_insert_returning);
 
-      /* This is INSERT ... RETURNING. It will return output to the client */
-      if (thd->lex->analyze_stmt)
-      {
-        /*
-          Actually, it is ANALYZE .. INSERT .. RETURNING. We need to produce
-          output and then discard it.
-        */
-        result= new (thd->mem_root) select_send_analyze(thd);
-        replaced_protocol= true;
-        save_protocol= thd->protocol;
-        thd->protocol= new Protocol_discard(thd);
+        /* This is INSERT ... RETURNING. It will return output to the client */
+        if (thd->lex->analyze_stmt)
+        {
+          /*
+            Actually, it is ANALYZE .. INSERT .. RETURNING. We need to produce
+            output and then discard it.
+          */
+          result= new (thd->mem_root) select_send_analyze(thd);
+          replaced_protocol= true;
+          save_protocol= thd->protocol;
+          thd->protocol= new Protocol_discard(thd);
+        }
+        else
+        {
+          if (!lex->result && !(result= new (thd->mem_root) select_send(thd)))
+            goto error;
+        }
       }
-      else
-      {
-        if (!lex->result && !(result= new (thd->mem_root) select_send(thd)))
-          goto error;
-      }
-    }
 
       /* Skip first table, which is the table we are inserting in */
       TABLE_LIST *second_table= first_table->next_local;
