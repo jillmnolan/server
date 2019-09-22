@@ -1720,10 +1720,10 @@ query:
           END_OF_INPUT
           {
             if (!thd->bootstrap &&
-              (!(thd->lex->lex_options & OPTION_LEX_FOUND_COMMENT)))
+              (!(Lex->lex_options & OPTION_LEX_FOUND_COMMENT)))
               my_yyabort_error((ER_EMPTY_QUERY, MYF(0)));
 
-            thd->lex->sql_command= SQLCOM_EMPTY_QUERY;
+            Lex->sql_command= SQLCOM_EMPTY_QUERY;
             YYLIP->found_semicolon= NULL;
           }
         | verb_clause
@@ -2136,7 +2136,7 @@ master_file_def:
 optional_connection_name:
           /* empty */
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             lex->mi.connection_name= null_clex_str;
           }
         | connection_name
@@ -2158,7 +2158,7 @@ connection_name:
 create:
           create_or_replace opt_temporary TABLE_SYM opt_if_not_exists
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             if (!(lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_create_table()))
               MYSQL_YYABORT;
             lex->create_info.init();
@@ -2170,7 +2170,7 @@ create:
           }
           table_ident
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             if (!lex->first_select_lex()->
                 add_table_to_list(thd, $6, NULL, TL_OPTION_UPDATING,
                                   TL_WRITE, MDL_SHARED_UPGRADABLE))
@@ -2187,13 +2187,13 @@ create:
           }
           create_body
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             create_table_set_open_action_and_adjust_tables(lex);
             Lex->pop_select(); //main select
           }
        | create_or_replace opt_temporary SEQUENCE_SYM opt_if_not_exists table_ident
          {
-           LEX *lex= thd->lex;
+           LEX *lex= Lex;
            if (lex->main_select_push())
              MYSQL_YYABORT;
            if (!(lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_create_sequence()))
@@ -2223,7 +2223,7 @@ create:
          }
          opt_sequence opt_create_table_options
          {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
 
             if (unlikely(lex->create_info.seq_create_info->check_and_adjust(1)))
             {
@@ -2550,7 +2550,7 @@ package_implementation_declare_section_list2:
 package_routine_lex:
           {
             if (unlikely(!($$= new (thd->mem_root)
-                           sp_lex_local(thd, thd->lex))))
+                           sp_lex_local(thd, Lex))))
               MYSQL_YYABORT;
             thd->m_parser_state->m_yacc.reset_before_substatement();
           }
@@ -2565,7 +2565,7 @@ package_specification_function:
             sp_name *spname= $1->make_sp_name_package_routine(thd, &$3);
             if (unlikely(!spname))
               MYSQL_YYABORT;
-            thd->lex= $2;
+            Lex= $2;
             if (unlikely(!$2->make_sp_head_no_recursive(thd, spname,
                                                         &sp_handler_package_function,
                                                         NOT_AGGREGATE)))
@@ -2577,9 +2577,9 @@ package_specification_function:
           RETURN_ORACLE_SYM sf_return_type
           sp_c_chistics
           {
-            sp_head *sp= thd->lex->sphead;
+            sp_head *sp= Lex->sphead;
             sp->restore_thd_mem_root(thd);
-            thd->lex= $1;
+            Lex= $1;
             $$= $2;
           }
         ;
@@ -2592,7 +2592,7 @@ package_specification_procedure:
             sp_name *spname= $1->make_sp_name_package_routine(thd, &$3);
             if (unlikely(!spname))
               MYSQL_YYABORT;
-            thd->lex= $2;
+            Lex= $2;
             if (unlikely(!$2->make_sp_head_no_recursive(thd, spname,
                                                         &sp_handler_package_procedure,
                                                         DEFAULT_AGGREGATE)))
@@ -2602,9 +2602,9 @@ package_specification_procedure:
           opt_sp_parenthesized_pdparam_list
           sp_c_chistics
           {
-            sp_head *sp= thd->lex->sphead;
+            sp_head *sp= Lex->sphead;
             sp->restore_thd_mem_root(thd);
-            thd->lex= $1;
+            Lex= $1;
             $$= $2;
 
           }
@@ -2639,16 +2639,16 @@ package_implementation_function_body:
           {
             sp_package *pkg= Lex->get_sp_package();
             sp_head *sp= pkg->m_current_routine->sphead;
-            thd->lex= pkg->m_current_routine;
+            Lex= pkg->m_current_routine;
             sp->reset_thd_mem_root(thd);
             sp->set_body_start(thd, YYLIP->get_cpp_tok_start());
           }
           sp_body opt_package_routine_end_name
           {
-            if (unlikely(thd->lex->sp_body_finalize_function(thd) ||
-                         thd->lex->sphead->check_package_routine_end_name($5)))
+            if (unlikely(Lex->sp_body_finalize_function(thd) ||
+                         Lex->sphead->check_package_routine_end_name($5)))
               MYSQL_YYABORT;
-            thd->lex= $2;
+            Lex= $2;
           }
         ;
 
@@ -2657,16 +2657,16 @@ package_implementation_procedure_body:
           {
             sp_package *pkg= Lex->get_sp_package();
             sp_head *sp= pkg->m_current_routine->sphead;
-            thd->lex= pkg->m_current_routine;
+            Lex= pkg->m_current_routine;
             sp->reset_thd_mem_root(thd);
             sp->set_body_start(thd, YYLIP->get_cpp_tok_start());
           }
           sp_body opt_package_routine_end_name
           {
-            if (unlikely(thd->lex->sp_body_finalize_procedure(thd) ||
-                         thd->lex->sphead->check_package_routine_end_name($5)))
+            if (unlikely(Lex->sp_body_finalize_procedure(thd) ||
+                         Lex->sphead->check_package_routine_end_name($5)))
               MYSQL_YYABORT;
-            thd->lex= $2;
+            Lex= $2;
           }
         ;
 
@@ -2996,7 +2996,7 @@ opt_ev_comment:
 
 ev_sql_stmt:
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             Lex_input_stream *lip= YYLIP;
 
             /*
@@ -3530,9 +3530,9 @@ opt_parenthesized_cursor_formal_parameters:
 
 sp_cursor_stmt_lex:
           {
-            DBUG_ASSERT(thd->lex->sphead);
+            DBUG_ASSERT(Lex->sphead);
             if (unlikely(!($$= new (thd->mem_root)
-                           sp_lex_cursor(thd, thd->lex))))
+                           sp_lex_cursor(thd, Lex))))
               MYSQL_YYABORT;
           }
         ;
@@ -3865,7 +3865,7 @@ statement_information_item:
 simple_target_specification:
           ident_cli
           {
-            if (unlikely(!($$= thd->lex->create_item_for_sp_var(&$1, NULL))))
+            if (unlikely(!($$= Lex->create_item_for_sp_var(&$1, NULL))))
               MYSQL_YYABORT;
           }
         | '@' ident_or_text
@@ -4054,7 +4054,7 @@ sp_statement:
 
 sp_proc_stmt_statement:
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             Lex_input_stream *lip= YYLIP;
 
             lex->sphead->reset_lex(thd);
@@ -4180,7 +4180,7 @@ sp_proc_stmt_goto_oracle:
 
 remember_lex:
           {
-            $$= thd->lex;
+            $$= Lex;
           }
         ;
 
@@ -4188,7 +4188,7 @@ assignment_source_lex:
           {
             DBUG_ASSERT(Lex->sphead);
             if (unlikely(!($$= new (thd->mem_root)
-                           sp_assignment_lex(thd, thd->lex))))
+                           sp_assignment_lex(thd, Lex))))
               MYSQL_YYABORT;
           }
         ;
@@ -4201,7 +4201,7 @@ assignment_source_expr:
           }
           expr
           {
-            DBUG_ASSERT($1 == thd->lex);
+            DBUG_ASSERT($1 == Lex);
             $$= $1;
             $$->sp_lex_in_use= true;
             $$->set_item_and_free_list($3, thd->free_list);
@@ -4215,17 +4215,17 @@ for_loop_bound_expr:
           assignment_source_lex
           {
             Lex->sphead->reset_lex(thd, $1);
-            Lex->current_select->parsing_place= FOR_LOOP_BOUND;
+            Select->parsing_place= FOR_LOOP_BOUND;
           }
           expr
           {
-            DBUG_ASSERT($1 == thd->lex);
+            DBUG_ASSERT($1 == Lex);
             $$= $1;
             $$->sp_lex_in_use= true;
             $$->set_item_and_free_list($3, NULL);
             if (unlikely($$->sphead->restore_lex(thd)))
               MYSQL_YYABORT;
-            Lex->current_select->parsing_place= NO_MATTER;
+            Select->parsing_place= NO_MATTER;
           }
         ;
 
@@ -6413,7 +6413,7 @@ storage_engines:
           {
             if (Storage_engine_name($1).
                  resolve_storage_engine_with_error(thd, &$$,
-                                            thd->lex->create_info.tmp_table()))
+                                            Lex->create_info.tmp_table()))
               MYSQL_YYABORT;
           }
         ;
@@ -8235,7 +8235,7 @@ alter_commands:
         | OPTIMIZE PARTITION_SYM opt_no_write_to_binlog
           all_or_alt_part_name_list
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             lex->no_write_to_binlog= $3;
             lex->check_opt.init();
             DBUG_ASSERT(!lex->m_sql_cmd);
@@ -8248,7 +8248,7 @@ alter_commands:
         | ANALYZE_SYM PARTITION_SYM opt_no_write_to_binlog
           all_or_alt_part_name_list
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             lex->no_write_to_binlog= $3;
             lex->check_opt.init();
             DBUG_ASSERT(!lex->m_sql_cmd);
@@ -8259,7 +8259,7 @@ alter_commands:
           }
         | CHECK_SYM PARTITION_SYM all_or_alt_part_name_list
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             lex->check_opt.init();
             DBUG_ASSERT(!lex->m_sql_cmd);
             lex->m_sql_cmd= new (thd->mem_root)
@@ -8271,7 +8271,7 @@ alter_commands:
         | REPAIR PARTITION_SYM opt_no_write_to_binlog
           all_or_alt_part_name_list
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             lex->no_write_to_binlog= $3;
             lex->check_opt.init();
             DBUG_ASSERT(!lex->m_sql_cmd);
@@ -8290,7 +8290,7 @@ alter_commands:
           }
         | TRUNCATE_SYM PARTITION_SYM all_or_alt_part_name_list
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             lex->check_opt.init();
             DBUG_ASSERT(!lex->m_sql_cmd);
             lex->m_sql_cmd= new (thd->mem_root)
@@ -8867,7 +8867,7 @@ repair:
           }
           repair_table_or_view
           {
-            LEX* lex= thd->lex;
+            LEX* lex= Lex;
             DBUG_ASSERT(!lex->m_sql_cmd);
             lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_repair_table();
             if (unlikely(lex->m_sql_cmd == NULL))
@@ -8909,7 +8909,7 @@ analyze:
           }
           analyze_table_list
           {
-            LEX* lex= thd->lex;
+            LEX* lex= Lex;
             DBUG_ASSERT(!lex->m_sql_cmd);
             lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_analyze_table();
             if (unlikely(lex->m_sql_cmd == NULL))
@@ -8931,7 +8931,7 @@ opt_persistent_stat_clause:
           {}        
         | PERSISTENT_SYM FOR_SYM persistent_stat_spec  
           { 
-            thd->lex->with_persistent_for_clause= TRUE;
+            Lex->with_persistent_for_clause= TRUE;
           }
         ;
 
@@ -8946,7 +8946,7 @@ persistent_column_stat_spec:
           ALL {}
         | '('
           { 
-            LEX* lex= thd->lex;
+            LEX* lex= Lex;
             lex->column_list= new (thd->mem_root) List<LEX_STRING>;
             if (unlikely(lex->column_list == NULL))
               MYSQL_YYABORT;
@@ -8960,7 +8960,7 @@ persistent_index_stat_spec:
           ALL {}
         | '('
           { 
-            LEX* lex= thd->lex;
+            LEX* lex= Lex;
             lex->index_list= new (thd->mem_root) List<LEX_STRING>;
             if (unlikely(lex->index_list == NULL))
               MYSQL_YYABORT;
@@ -9045,7 +9045,7 @@ check:    CHECK_SYM
           }
           check_view_or_table
           {
-            LEX* lex= thd->lex;
+            LEX* lex= Lex;
             if (unlikely(lex->sphead))
               my_yyabort_error((ER_SP_BADSTATEMENT, MYF(0), "CHECK"));
             DBUG_ASSERT(!lex->m_sql_cmd);
@@ -9092,7 +9092,7 @@ optimize:
           }
           table_list opt_lock_wait_timeout
           {
-            LEX* lex= thd->lex;
+            LEX* lex= Lex;
             DBUG_ASSERT(!lex->m_sql_cmd);
             lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_optimize_table();
             if (unlikely(lex->m_sql_cmd == NULL))
@@ -9860,13 +9860,13 @@ select_item_list:
         | '*'
           {
             Item *item= new (thd->mem_root)
-                          Item_field(thd, &thd->lex->current_select->context,
+                          Item_field(thd, &Select->context,
                                      star_clex_str);
             if (unlikely(item == NULL))
               MYSQL_YYABORT;
             if (unlikely(!($$= List<Item>::make(thd->mem_root, item))))
               MYSQL_YYABORT;
-            (thd->lex->current_select->with_wild)++;
+            Select->with_wild++;
           }
         ;
 
@@ -9952,7 +9952,7 @@ expr:
           {
             /*
               Design notes:
-              Do not use a manually maintained stack like thd->lex->xxx_list,
+              Do not use a manually maintained stack like Lex->xxx_list,
               but use the internal bison stack ($$, $1 and $3) instead.
               Using the bison stack is:
               - more robust to changes in the grammar,
@@ -11635,7 +11635,7 @@ window_func_expr:
                                                  lex->win_frame)))
               MYSQL_YYABORT;
             $$= new (thd->mem_root) Item_window_func(thd, (Item_sum *) $1,
-                                                      thd->lex->win_spec); 
+                                                      Lex->win_spec); 
             if (unlikely($$ == NULL))
               MYSQL_YYABORT;
             if (unlikely(Select->add_window_func((Item_window_func *) $$)))
@@ -11781,7 +11781,7 @@ inverse_distribution_function:
                                                  NULL)))
               MYSQL_YYABORT;
             $$= new (thd->mem_root) Item_window_func(thd, (Item_sum *) $1,
-                                                     thd->lex->win_spec);
+                                                     Lex->win_spec);
             if (unlikely($$ == NULL))
               MYSQL_YYABORT;
             if (unlikely(Select->add_window_func((Item_window_func *) $$)))
@@ -12722,8 +12722,8 @@ opt_window_ref:
           /* empty */ {} 
         | ident
           {
-            thd->lex->win_ref= (LEX_CSTRING *) thd->memdup(&$1, sizeof(LEX_CSTRING));
-            if (unlikely(thd->lex->win_ref == NULL))
+            Lex->win_ref= (LEX_CSTRING *) thd->memdup(&$1, sizeof(LEX_CSTRING));
+            if (unlikely(Lex->win_ref == NULL))
               MYSQL_YYABORT;
           }
         ;
@@ -13389,7 +13389,7 @@ drop:
           }
         | DROP FUNCTION_SYM opt_if_exists ident '.' ident
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             sp_name *spname;
             if (unlikely($4.str && check_db_name((LEX_STRING*) &$4)))
               my_yyabort_error((ER_WRONG_DB_NAME, MYF(0), $4.str));
@@ -13403,7 +13403,7 @@ drop:
           }
         | DROP FUNCTION_SYM opt_if_exists ident
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             LEX_CSTRING db= {0, 0};
             sp_name *spname;
             if (unlikely(lex->sphead))
@@ -13488,7 +13488,7 @@ table_list:
 table_name:
           table_ident
           {
-            if (!thd->lex->current_select_or_default()->
+            if (!Lex->current_select_or_default()->
                                            add_table_to_list(thd, $1, NULL,
                                            TL_OPTION_UPDATING,
                                            YYPS->m_lock_type,
@@ -13575,7 +13575,7 @@ insert:
           opt_ignore insert2
           {
             Select->set_lock_for_tables($3, true);
-            Lex->current_select= Lex->first_select_lex();
+            Select= Lex->first_select_lex();
           }
           insert_field_spec opt_insert_update opt_returning
           {
@@ -13599,7 +13599,7 @@ replace:
           replace_lock_option insert2
           {
             Select->set_lock_for_tables($3, true);
-            Lex->current_select= Lex->first_select_lex();
+            Select= Lex->first_select_lex();
           }
           insert_field_spec opt_returning
           {
@@ -13676,7 +13676,7 @@ insert_field_spec:
 insert_field_list:
           LEFT_PAREN_ALT opt_fields ')'
           {
-            Lex->current_select->parsing_place= AFTER_LIST;
+            Select->parsing_place= AFTER_LIST;
           }
         ;
 
@@ -14113,7 +14113,7 @@ truncate:
           }
           opt_table_sym table_name opt_lock_wait_timeout
           {
-            LEX* lex= thd->lex;
+            LEX* lex= Lex;
             DBUG_ASSERT(!lex->m_sql_cmd);
             lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_truncate_table();
             if (unlikely(lex->m_sql_cmd == NULL))
@@ -14455,7 +14455,7 @@ show_param:
           }
         | SLAVE STATUS_SYM
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             lex->mi.connection_name= null_clex_str;
             lex->sql_command = SQLCOM_SHOW_SLAVE_STAT;
             if (!(lex->m_sql_cmd= new (thd->mem_root)
@@ -14585,7 +14585,7 @@ show_param:
                thd->parse_error(ER_SYNTAX_ERROR, $3);
                MYSQL_YYABORT;
              }
-             if (unlikely(make_schema_select(thd, Lex->current_select, table)))
+             if (unlikely(make_schema_select(thd, Select, table)))
                MYSQL_YYABORT;
            }
         ;
@@ -15067,7 +15067,7 @@ use:
 load:
           LOAD data_or_xml
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
 
             if (unlikely(lex->sphead))
             {
@@ -15546,7 +15546,7 @@ with_list_element:
           }
           AS '(' query_expression ')'
  	  {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             const char *query_start= lex->sphead ? lex->sphead->m_tmp_query
                                                  : thd->query();
             const char *spec_start= $5.pos() + 1;
@@ -16870,7 +16870,7 @@ option_value_no_option_type:
           {
             if (sp_create_assignment_lex(thd, $1.pos()))
               MYSQL_YYABORT;
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             CHARSET_INFO *cs2;
             cs2= $2 ? $2: global_system_variables.character_set_client;
             set_var_collation_client *var;
@@ -16933,7 +16933,7 @@ option_value_no_option_type:
                 unlikely(lex->var_list.push_back(var, thd->mem_root)))
               MYSQL_YYABORT;
 
-            thd->lex->autocommit= TRUE;
+            Lex->autocommit= TRUE;
             if (lex->sphead)
               lex->sphead->m_flags|= sp_head::HAS_SET_AUTOCOMMIT_STMT;
             if (unlikely(sp_create_assignment_instr(thd, yychar == YYEMPTY)))
@@ -16949,7 +16949,7 @@ option_value_no_option_type:
             if (unlikely(var == NULL) ||
                 unlikely(lex->var_list.push_back(var, thd->mem_root)))
               MYSQL_YYABORT;
-            thd->lex->autocommit= TRUE;
+            Lex->autocommit= TRUE;
             if (lex->sphead)
               lex->sphead->m_flags|= sp_head::HAS_SET_AUTOCOMMIT_STMT;
             if (unlikely(sp_create_assignment_instr(thd, yychar == YYEMPTY)))
@@ -17056,7 +17056,7 @@ isolation_types:
 opt_for_user:
         equal
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             sp_pcontext *spc= lex->spcont;
             LEX_CSTRING pw= { STRING_WITH_LEN("password") };
 
@@ -18019,7 +18019,7 @@ no_definer:
               from older master servers (i.e. to create non-suid trigger in this
               case).
             */
-            thd->lex->definer= 0;
+            Lex->definer= 0;
           }
         ;
 
@@ -18151,7 +18151,7 @@ trigger_tail:
           }
           trigger_follows_precedes_clause /* $17 */
           { /* $18 */
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             Lex_input_stream *lip= YYLIP;
 
             if (unlikely(lex->sphead))
@@ -18215,7 +18215,7 @@ sf_return_type:
 sf_c_chistics_and_body_standalone:
           sp_c_chistics
           {
-            LEX *lex= thd->lex;
+            LEX *lex= Lex;
             lex->sphead->set_c_chistics(lex->sp_chistics);
             lex->sphead->set_body_start(thd, YYLIP->get_cpp_tok_start());
           }
