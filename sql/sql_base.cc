@@ -7485,16 +7485,16 @@ static bool setup_natural_join_row_types(THD *thd,
 ****************************************************************************/
 
 int setup_wild(THD *thd, TABLE_LIST *tables, List<Item> &fields,
-	       List<Item> *sum_func_list,
-	       uint wild_num, uint *hidden_bit_fields)
+	       List<Item> *sum_func_list, uint *hidden_bit_fields)
 {
-  if (!wild_num)
-    return(0);
-
+  SELECT_LEX *select_lex= thd->lex->current_select;
   Item *item;
   List_iterator<Item> it(fields);
   Query_arena *arena, backup;
   DBUG_ENTER("setup_wild");
+
+  if (!select_lex->with_wild)
+    DBUG_RETURN(0);
 
   /*
     Don't use arena if we are not in prepared statements or stored procedures
@@ -7503,7 +7503,7 @@ int setup_wild(THD *thd, TABLE_LIST *tables, List<Item> &fields,
   arena= thd->activate_stmt_arena_if_needed(&backup);
 
   thd->lex->current_select->cur_pos_in_select_list= 0;
-  while (wild_num && (item= it++))
+  while (select_lex->with_wild && (item= it++))
   {
     if (item->type() == Item::FIELD_ITEM &&
         ((Item_field*) item)->field_name.str == star_clex_str.str &&
@@ -7541,30 +7541,16 @@ int setup_wild(THD *thd, TABLE_LIST *tables, List<Item> &fields,
 	*/
 	sum_func_list->elements+= fields.elements - elem;
       }
-      wild_num--;
+      select_lex->with_wild--;
     }
     else
       thd->lex->current_select->cur_pos_in_select_list++;
   }
+  DBUG_ASSERT(!select_lex->with_wild ||
+              !thd->lex->returning_list.is_empty());
   thd->lex->current_select->cur_pos_in_select_list= UNDEF_POS;
   if (arena)
-  {
-    /* make * substituting permanent */
-    SELECT_LEX *select_lex= thd->lex->current_select;
-    select_lex->with_wild= 0;
-#ifdef HAVE_valgrind
-    if (&select_lex->item_list != &fields)      // Avoid warning
-#endif
-    /*   
-      The assignment below is translated to memcpy() call (at least on some
-      platforms). memcpy() expects that source and destination areas do not
-      overlap. That problem was detected by valgrind. 
-    */
-    if (&select_lex->item_list != &fields)
-      select_lex->item_list= fields;
-
     thd->restore_active_arena(arena, &backup);
-  }
   DBUG_RETURN(0);
 }
 
@@ -7685,12 +7671,10 @@ bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
 int setup_returning_fields(THD* thd, SELECT_LEX* select_lex,
                            TABLE_LIST* table_list)
 {
-  return ((select_lex->with_wild && setup_wild(thd, table_list,
-                                               thd->lex->returning_list, NULL,
-                                               select_lex->with_wild,
-                                               &select_lex->hidden_bit_fields))
-         || setup_fields(thd, Ref_ptr_array(), thd->lex->returning_list,
-                          MARK_COLUMNS_READ, NULL, NULL, false));
+  uint unused= 0;
+  return setup_wild(thd, table_list, thd->lex->returning_list, NULL, &unused)
+      || setup_fields(thd, Ref_ptr_array(), thd->lex->returning_list,
+                       MARK_COLUMNS_READ, NULL, NULL, false);
 }
 
 
