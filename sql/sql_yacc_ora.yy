@@ -1384,6 +1384,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
         simple_target_specification
         condition_number
         reset_lex_expr
+        select_item
 
 %type <item_param> param_marker
 
@@ -1398,6 +1399,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
         decode_when_list_oracle
         execute_using
         execute_params
+        select_item_list
 
 %type <sp_cursor_stmt>
         sp_cursor_stmt_lex
@@ -1531,13 +1533,12 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
         opt_persistent_stat_clause persistent_stat_spec
         persistent_column_stat_spec persistent_index_stat_spec
         table_column_list table_index_list table_index_name
-        check start checksum
+        check start checksum opt_returning
         field_list field_list_item kill key_def constraint_def
         keycache_list keycache_list_or_parts assign_to_keycache
         assign_to_keycache_parts
         preload_list preload_list_or_parts preload_keys preload_keys_parts
-        select_item_list select_item values_list no_braces
-        delete_limit_clause fields opt_values values
+        values_list no_braces delete_limit_clause fields opt_values values
         no_braces_with_names opt_values_with_names values_with_names
         procedure_list procedure_list2 procedure_item
         field_def handler opt_generated_always
@@ -1561,7 +1562,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
         table_to_table_list table_to_table opt_table_list opt_as
         handler_rkey_function handler_read_or_scan
         single_multi table_wild_list table_wild_one opt_wild
-        opt_and
+        opt_and opt_insert_update
         select_var_list select_var_list_init help
         opt_extended_describe shutdown
         opt_format_json
@@ -9366,6 +9367,7 @@ query_specification_start:
           select_item_list
           {
             Select->parsing_place= NO_MATTER;
+            Select->item_list= *($5);
           }
           ;
 
@@ -9837,9 +9839,24 @@ opt_lock_wait_timeout_new:
         }
       ;
 
+/*
+  Here, we make select_item_list return List<Item> to prevent it from
+  adding everything to SELECT_LEX::item_list. If items are already there
+  in the item_list then using RETURNING with INSERT...SELECT is not
+  possible because rules occuring after insert_values add everything
+  to SELECT_LEX::item_list.
+*/
 select_item_list:
           select_item_list ',' select_item
+          {
+            $1->push_back($3, thd->mem_root);
+            $$= $1;
+          }
         | select_item
+          {
+            if (unlikely(!($$= List<Item>::make(thd->mem_root, $1))))
+              MYSQL_YYABORT;
+          }
         | '*'
           {
             Item *item= new (thd->mem_root)
@@ -9847,7 +9864,7 @@ select_item_list:
                                      star_clex_str);
             if (unlikely(item == NULL))
               MYSQL_YYABORT;
-            if (unlikely(add_item_to_list(thd, item)))
+            if (unlikely(!($$= List<Item>::make(thd->mem_root, item))))
               MYSQL_YYABORT;
             (thd->lex->current_select->with_wild)++;
           }
@@ -9856,15 +9873,12 @@ select_item_list:
 select_item:
           remember_name select_sublist_qualified_asterisk remember_end
           {
-            if (unlikely(add_item_to_list(thd, $2)))
-              MYSQL_YYABORT;
+            $$=$2;
           }
         | remember_name expr remember_end select_alias
           {
             DBUG_ASSERT($1 < $3);
-
-            if (unlikely(add_item_to_list(thd, $2)))
-              MYSQL_YYABORT;
+            $$=$2;
             if ($4.str)
             {
               if (unlikely(Lex->sql_command == SQLCOM_CREATE_VIEW &&
@@ -13563,7 +13577,7 @@ insert:
             Select->set_lock_for_tables($3, true);
             Lex->current_select= Lex->first_select_lex();
           }
-          insert_field_spec opt_insert_update
+          insert_field_spec opt_insert_update opt_returning
           {
             Lex->pop_select(); //main select
             if (Lex->check_main_unit_semantics())
@@ -13587,7 +13601,7 @@ replace:
             Select->set_lock_for_tables($3, true);
             Lex->current_select= Lex->first_select_lex();
           }
-          insert_field_spec
+          insert_field_spec opt_returning
           {
             Lex->pop_select(); //main select
             if (Lex->check_main_unit_semantics())
@@ -13812,7 +13826,7 @@ expr_or_default:
         ;
 
 opt_insert_update:
-          /* empty */
+          /* empty */ {}
         | ON DUPLICATE_SYM { Lex->duplicates= DUP_UPDATE; }
           KEY_SYM UPDATE_SYM 
           {
@@ -13984,7 +13998,7 @@ single_multi:
           opt_where_clause
           opt_order_clause
           delete_limit_clause
-          opt_select_expressions 
+          opt_returning
           {
             if ($3)
               Select->order_list= *($3);
@@ -14020,9 +14034,15 @@ single_multi:
           }
         ;
 
-opt_select_expressions:
+opt_returning:
           /* empty */ 
+          {
+            Lex->returning_list.empty();
+          }
         | RETURNING_SYM select_item_list 
+          {
+            Lex->returning_list= *($2);
+          }
         ;
 
 table_wild_list:
