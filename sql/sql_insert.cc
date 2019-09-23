@@ -708,7 +708,7 @@ bool mysql_insert(THD *thd, TABLE_LIST *table_list,
   bool transactional_table, joins_freed= FALSE;
   bool changed;
   const bool was_insert_delayed= (table_list->lock_type ==  TL_WRITE_DELAYED);
-  bool using_bulk_insert= 0;
+  bool using_bulk_insert= 0, returning= !thd->lex->returning_list.is_empty();
   uint value_count;
   ulong counter = 1;
   /* counter of iteration in bulk PS operation*/
@@ -781,7 +781,7 @@ bool mysql_insert(THD *thd, TABLE_LIST *table_list,
     goto abort;
 
   /* Prepares LEX::returing_list if it is not empty */
-  if (result)
+  if (returning)
     (void)result->prepare(thd->lex->returning_list, NULL);
   /* mysql_prepare_insert sets table_list->table if it was not set */
   table= table_list->table;
@@ -958,7 +958,7 @@ bool mysql_insert(THD *thd, TABLE_LIST *table_list,
     At this point we have all the required information to send the result set
     metadata.
   */
-  if (result)
+  if (returning)
   {
     if (unlikely(result->send_result_set_metadata(thd->lex->returning_list,
                                                   Protocol::SEND_NUM_ROWS |
@@ -1101,7 +1101,7 @@ bool mysql_insert(THD *thd, TABLE_LIST *table_list,
         values updated in ON DUPLICATE KEY UPDATE (handled inside
         write_record()).
       */
-      if (result && result->send_data(thd->lex->returning_list) < 0)
+      if (returning && result->send_data(thd->lex->returning_list) < 0)
       {
         error= 1;
         break;
@@ -1275,7 +1275,7 @@ values_loop_end:
       Else we send Ok packet i.e when the statement returns only the status
       information
     */
-   if (result)
+   if (returning)
       result->send_eof();
    else
       my_ok(thd, info.copied + info.deleted +
@@ -1297,7 +1297,7 @@ values_loop_end:
       sprintf(buff, ER_THD(thd, ER_INSERT_INFO), (ulong) info.records,
        (ulong) (info.deleted + updated),
               (long) thd->get_stmt_da()->current_statement_warn_count());
-    if (result)
+    if (returning)
       result->send_eof();
     else
       ::my_ok(thd, info.copied + info.deleted + updated, id, buff);
