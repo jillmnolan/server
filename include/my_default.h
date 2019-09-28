@@ -23,7 +23,6 @@ C_MODE_START
 extern const char *my_defaults_extra_file;
 extern const char *my_defaults_group_suffix;
 extern const char *my_defaults_file;
-extern my_bool my_getopt_use_args_separator;
 extern my_bool my_getopt_is_args_separator(const char* arg);
 
 extern int get_defaults_options(int argc, char **argv,
