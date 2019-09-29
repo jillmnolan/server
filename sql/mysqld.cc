@@ -7988,7 +7988,7 @@ static int mysql_init_variables(void)
 
 my_bool
 mysqld_get_one_option(const struct my_option *opt, char *argument,
-                      const char *)
+                      const char *filename)
 {
   if (opt->app_type)
   {
@@ -7998,7 +7998,13 @@ mysqld_get_one_option(const struct my_option *opt, char *argument,
       var->value_origin= sys_var::AUTO;
       return 0;
     }
-    var->value_origin= sys_var::CONFIG;
+    if (*filename)
+    {
+      var->origin_filename= filename;
+      var->value_origin= sys_var::CONFIG;
+    }
+    else
+      var->value_origin= sys_var::COMMAND_LINE;
   }
 
   switch(opt->id) {

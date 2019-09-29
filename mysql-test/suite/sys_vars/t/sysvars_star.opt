@@ -1,0 +1,2 @@
+--column-compression-threshold=120
+--loose-query-response-time-range-base=16

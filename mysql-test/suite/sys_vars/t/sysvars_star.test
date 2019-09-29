@@ -1,0 +1,38 @@
+#
+# MDEV-12684 Show what config file a sysvar got a value from
+#
+
+source include/not_embedded.inc;
+if (!$QUERY_RESPONSE_TIME_SO) {
+  skip No query_response_time plugin;
+}
+
+set auto_increment_increment=10;
+set global auto_increment_offset=5;
+
+install soname 'query_response_time';
+
+vertical_results;
+replace_result $MYSQLTEST_VARDIR mysql-test/var;
+select *  from information_schema.system_variables
+  where variable_name in (
+    'auto_increment_increment',       #session!=global, origin=compile-time
+    'auto_increment_offset',          #global!=default, origin=sql
+    'column_compression_threshold',   #origin=command-line
+    'secure_file_priv',               #origin=config
+    'query_response_time_range_base', #plugin, origin=command-line
+    'query_response_time_stats'       #plugin, origin=config
+  )
+  order by variable_name;
+
+create user foo@localhost;
+
+connect foo,localhost,foo;
+select * from information_schema.system_variables
+  where global_value_path is not null;
+connection default;
+
+drop user foo@localhost;
+set global auto_increment_offset=default;
+disable_warnings;
+uninstall soname 'query_response_time';
