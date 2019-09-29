@@ -191,7 +191,7 @@ int handle_options(int *argc, char ***argv, const struct my_option *longopts,
   uint UNINIT_VAR(opt_found), argvpos= 0, length;
   my_bool end_of_options= 0, must_be_var, set_maximum_value,
           option_is_loose, option_is_autoset;
-  char **pos, **pos_end, *optend, *opt_str, key_name[FN_REFLEN];
+  char **pos, **pos_end, *optend, *opt_str, key_name[FN_REFLEN], *filename= 0;
   const char *UNINIT_VAR(prev_found);
   const struct my_option *optp;
   void *value;
@@ -212,7 +212,7 @@ int handle_options(int *argc, char ***argv, const struct my_option *longopts,
   */
   for (pos= *argv, pos_end=pos+ *argc; pos != pos_end ; pos++)
   {
-    if (my_getopt_is_args_separator(*pos))
+    if (my_getopt_is_file_marker(*pos))
     {
       is_cmdline_arg= 0;
       break;
@@ -224,16 +224,22 @@ int handle_options(int *argc, char ***argv, const struct my_option *longopts,
     char **first= pos;
     char *cur_arg= *pos;
     opt_found= 0;
-    if (!is_cmdline_arg && (my_getopt_is_args_separator(cur_arg)))
+    if (!is_cmdline_arg)
     {
-      is_cmdline_arg= 1;
-
-      /* save the separator too if skip unknown options  */
-      if (my_getopt_skip_unknown)
-        (*argv)[argvpos++]= cur_arg;
-      else
-        (*argc)--;
-      continue;
+      if (my_getopt_is_file_marker(cur_arg))
+      {
+        pos++;
+        filename= *pos;
+        is_cmdline_arg= *filename == 0; /* empty file name = command line */
+        if (my_getopt_skip_unknown)
+        {
+          (*argv)[argvpos++]= cur_arg;
+          (*argv)[argvpos++]= filename;
+        }
+        else
+          (*argc)-= 2;
+        continue;
+      }
     }
     if (cur_arg[0] == '-' && cur_arg[1] && !end_of_options) /* must be opt */
     {

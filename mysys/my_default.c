@@ -43,31 +43,17 @@
 #include <winbase.h>
 #endif
 
-/**
-   arguments separator
-
-   load_defaults() loads arguments from config file and put them
-   before the arguments from command line, this separator is used to
-   separate the arguments loaded from config file and arguments user
-   provided on command line.
-
-   Options with value loaded from config file are always in the form
-   '--option=value', while for command line options, the value can be
-   given as the next argument. Thus we used a separator so that
-   handle_options() can distinguish them.
-
-   Note: any other places that does not need to distinguish them
-   should skip the separator.
-
-   The content of arguments separator does not matter, one should only
-   check the pointer, use "----args-separator----" here to ease debug
-   if someone misused it.
+/*
+  Mark file names in argv[]. File marker is *always* followed by a file name
+  All options after it come from that file.
+  Empty file name ("") means command line.
 */
-static char *args_separator= (char*)"----args-separator----";
-my_bool my_getopt_is_args_separator(const char* arg)
+static char *file_marker= (char*)"----file-marker----";
+my_bool my_getopt_is_file_marker(const char* arg)
 {
-  return (arg == args_separator);
+  return (arg == file_marker);
 }
+
 const char *my_defaults_file=0;
 const char *my_defaults_group_suffix=0;
 const char *my_defaults_extra_file=0;
@@ -478,19 +464,17 @@ int my_load_defaults(const char *conf_file, const char **groups, int *argc,
   {
     /* remove the --no-defaults argument and return only the other arguments */
     uint i;
-    if (!(ptr=(char*) alloc_root(&alloc,sizeof(alloc)+
-				 (*argc + 1)*sizeof(char*))))
+    if (!(ptr=(char*) alloc_root(&alloc, sizeof(alloc) +
+				 (*argc + 2) * sizeof(char*))))
       goto err;
     res= (char**) (ptr+sizeof(alloc));
-    res[0]= **argv;                             /* Copy program name */
-    res[1]= args_separator;  /* the rest comes from the command line */
+    res[0]= **argv;                             /* Copy program name      */
+    res[1]= file_marker;                        /* empty file name marker */
+    res[2]= (char*)"";                          /* ... means command line */
     for (i=2 ; i < (uint) *argc ; i++)
-      res[i]=argv[0][i];
-    res[i]=0;					/* End pointer */
-    /*
-      Update the argc, if have not added args separator, then we have
-      to decrease argc because we have removed the "--no-defaults".
-    */
+      res[i+1]=argv[0][i];
+    res[i+1]=0;					/* End pointer */
+    (*argc)++;
     *argv=res;
     *(MEM_ROOT*) ptr= alloc;			/* Save alloc root for free */
     if (default_directories)
@@ -523,8 +507,8 @@ int my_load_defaults(const char *conf_file, const char **groups, int *argc,
     Here error contains <> 0 only if we have a fully specified conf_file
     or a forced default file
   */
-  if (!(ptr=(char*) alloc_root(&alloc,sizeof(alloc)+
-			       (args.elements + *argc + 2) *sizeof(char*))))
+  if (!(ptr=(char*) alloc_root(&alloc, sizeof(alloc) +
+			       (args.elements + *argc + 3) * sizeof(char*))))
     goto err;
   res= (char**) (ptr+sizeof(alloc));
 
@@ -545,14 +529,15 @@ int my_load_defaults(const char *conf_file, const char **groups, int *argc,
     --*argc; ++*argv;				/* skip argument */
   }
 
-  res[args.elements+1]= args_separator; /* the rest comes from command line */
+  res[args.elements + 1]= file_marker;         /* empty file name marker */
+  res[args.elements + 2]= (char*)"";           /* ... means command line */
 
   if (*argc)
-    memcpy((uchar*) (res + 2 + args.elements), (char*) ((*argv)+1),
+    memcpy((uchar*) (res + 3 + args.elements), (char*) ((*argv)+1),
 	   (*argc-1)*sizeof(char*));
-  res[args.elements + *argc + 1]= 0;                /* last null */
+  res[args.elements + *argc + 2]= 0;                /* last null */
 
-  (*argc)+= args.elements + 1;
+  (*argc)+= args.elements + 2;
   *argv= (char**) res;
   *(MEM_ROOT*) ptr= alloc;			/* Save alloc root for free */
   delete_dynamic(&args);
@@ -562,8 +547,12 @@ int my_load_defaults(const char *conf_file, const char **groups, int *argc,
     printf("%s would have been started with the following arguments:\n",
 	   **argv);
     for (i=1 ; i < *argc ; i++)
-      if (!my_getopt_is_args_separator((*argv)[i])) /* skip arguments separator */
+    {
+      if (my_getopt_is_file_marker((*argv)[i]))
+        i++;
+      else
         printf("%s ", (*argv)[i]);
+    }
     puts("");
     DBUG_RETURN(4);
   }
@@ -727,6 +716,10 @@ static int search_default_file_with_ext(struct handle_option_ctx *ctx,
 #endif
   if (!(fp= mysql_file_fopen(key_file_cnf, name, O_RDONLY, MYF(0))))
     return 1;					/* Ignore wrong files */
+
+  if (insert_dynamic(ctx->args, (uchar*) &file_marker) ||
+      add_option(ctx, name))
+    goto err;
 
   while (mysql_file_fgets(buff, sizeof(buff) - 1, fp))
   {

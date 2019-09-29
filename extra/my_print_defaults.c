@@ -200,8 +200,12 @@ int main(int argc, char **argv)
   }
 
   for (argument= arguments+1 ; *argument ; argument++)
-    if (!my_getopt_is_args_separator(*argument))           /* skip arguments separator */
+  {
+    if (my_getopt_is_file_marker(*argument))
+      argument++;
+    else
       puts(*argument);
+  }
   my_free(load_default_groups);
   free_defaults(arguments);
   my_end(0);
