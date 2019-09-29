@@ -1479,7 +1479,7 @@ static int mysql_init_variables(void);
 static int get_options(int *argc_ptr, char ***argv_ptr);
 static bool add_terminator(DYNAMIC_ARRAY *options);
 static bool add_many_options(DYNAMIC_ARRAY *, my_option *, size_t);
-extern "C" my_bool mysqld_get_one_option(int, const struct my_option *, char *);
+extern "C" my_bool mysqld_get_one_option(const struct my_option *, char *, const char *);
 static int init_thread_environment();
 static char *get_relative_path(const char *path);
 static int fix_paths(void);
@@ -7987,7 +7987,8 @@ static int mysql_init_variables(void)
 }
 
 my_bool
-mysqld_get_one_option(int optid, const struct my_option *opt, char *argument)
+mysqld_get_one_option(const struct my_option *opt, char *argument,
+                      const char *)
 {
   if (opt->app_type)
   {
@@ -8000,7 +8001,7 @@ mysqld_get_one_option(int optid, const struct my_option *opt, char *argument)
     var->value_origin= sys_var::CONFIG;
   }
 
-  switch(optid) {
+  switch(opt->id) {
   case '#':
 #ifndef DBUG_OFF
     if (!argument)
