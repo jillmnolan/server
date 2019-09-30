@@ -2387,6 +2387,7 @@ page_validate(
 	const page_dir_slot_t*	slot;
 	const rec_t*		rec;
 	const rec_t*		old_rec		= NULL;
+	const rec_t*		first_rec	= NULL;
 	ulint			offs;
 	ulint			n_slots;
 	ibool			ret		= TRUE;
@@ -2510,6 +2511,54 @@ wrong_page_type:
 			goto next_rec;
 		}
 
+		if (rec == first_rec) {
+			if (rec_get_info_bits(rec, page_is_comp(page))
+			    & REC_INFO_MIN_REC_FLAG
+			    && page_is_leaf(page)) {
+				if (page_has_prev(page)) {
+					ib::error() << "REC_INFO_MIN_REC_FLAG "
+						       "record "
+						       "is not first in index";
+					ret = false;
+				}
+
+				if (rec_get_deleted_flag(rec,
+							 page_is_comp(page))) {
+					// TODO: 10.4 requires
+					// index->table->instant instead of
+					// uncondition error
+					ib::error() << "REC_INFO_MIN_REC_FLAG "
+						       "record is deleted";
+					ret = false;
+				}
+
+				if (!page_has_prev(page)
+				    && !index->is_instant()) {
+					ib::error()
+						<< "metadata record found but "
+						   "index is not instant";
+					ret = false;
+				}
+			}
+
+			if (!(rec_get_info_bits(rec, page_is_comp(page))
+			      & REC_INFO_MIN_REC_FLAG)
+			    && page_is_leaf(page) && !page_has_prev(page)
+			    && index->is_instant()) {
+				ib::error() << "index is instant but metadata "
+					       "record is missing";
+				ret = false;
+			}
+		}
+
+		if (rec != first_rec
+		    && (rec_get_info_bits(rec, page_is_comp(page))
+			& REC_INFO_MIN_REC_FLAG)) {
+			ib::error() << "REC_INFO_MIN_REC_FLAG record is not "
+				       "first in page";
+			ret = false;
+		}
+
 		/* Check that the records are in the ascending order */
 		if (count >= PAGE_HEAP_NO_USER_LOW
 		    && !page_rec_is_supremum(rec)) {
@@ -2615,6 +2664,11 @@ next_rec:
 		own_count++;
 		old_rec = rec;
 		rec = page_rec_get_next_const(rec);
+
+		if (page_rec_is_infimum(old_rec)
+		    && page_rec_is_user_rec(rec)) {
+			first_rec = rec;
+		}
 
 		/* set old_offsets to offsets; recycle offsets */
 		{
