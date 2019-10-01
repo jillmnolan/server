@@ -10433,3 +10433,32 @@ void Lex_field_type_st::set_handler_length_flags(const Type_handler *handler,
     handler= handler->type_handler_unsigned();
   set(handler, length, NULL);
 }
+
+int add_foreign_key_to_list(LEX *lex, const LEX_CSTRING *name,
+                            const LEX_CSTRING *constraint_name,
+                            Table_ident *ref_table_name,
+                            DDL_options ddl_options)
+{
+  THD *thd= lex->thd;
+  Key *key= new (thd->mem_root) Foreign_key(name,
+                                            &lex->last_key->columns,
+                                            constraint_name,
+                                            &ref_table_name->db,
+                                            &ref_table_name->table,
+                                            &lex->ref_list,
+                                            lex->fk_delete_opt,
+                                            lex->fk_update_opt,
+                                            lex->fk_match_option,
+                                            ddl_options);
+  if (unlikely(key == NULL))
+    return 1;
+
+  /*
+    handle_if_exists_options() expects the two keys in this order:
+    the Foreign_key, followed by its auto-generated Key.
+  */
+  lex->alter_info.key_list.push_back(key, thd->mem_root);
+  lex->alter_info.key_list.push_back(lex->last_key, thd->mem_root);
+
+  return 0;
+}

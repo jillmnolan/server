@@ -6483,8 +6483,32 @@ field_list_item:
 column_def:
           field_spec
           { $$= $1; }
-        | field_spec references
-          { $$= $1; }
+        | field_spec opt_constraint references
+          {
+            LEX *lex= Lex;
+            if (lex->last_field->vcol_info || lex->last_field->vers_sys_field())
+            {
+              thd->parse_error();
+              MYSQL_YYABORT;
+            }
+            DDL_options_st opt;
+            opt.init();
+            if (unlikely(!(Lex->last_key= (new (thd->mem_root)
+                                           Key(Key::MULTIPLE, &$2,
+                                           HA_KEY_ALG_UNDEF, true, opt)))))
+              MYSQL_YYABORT;
+            Key_part_spec *key= new (thd->mem_root) Key_part_spec(&($1->field_name), 0);
+            if (unlikely(key == NULL))
+              MYSQL_YYABORT;
+            lex->last_key->columns.push_back(key, thd->mem_root);
+            if (unlikely(add_foreign_key_to_list(Lex, &$2, &$2, $3, opt)))
+               MYSQL_YYABORT;
+            lex->option_list= NULL;
+
+            /* Only used for ALTER TABLE. Ignored otherwise. */
+            lex->alter_info.flags|= ALTER_ADD_FOREIGN_KEY;
+            $$= $1;
+          }
         ;
 
 key_def:
@@ -6545,30 +6569,13 @@ key_def:
           }
           '(' key_list ')' references
           {
-            LEX *lex=Lex;
-            Key *key= (new (thd->mem_root)
-                       Foreign_key($5.str ? &$5 : &$1,
-                                   &lex->last_key->columns,
-                                   $1.str ? &$1 : &$5,
-                                   &$10->db,
-                                   &$10->table,
-                                   &lex->ref_list,
-                                   lex->fk_delete_opt,
-                                   lex->fk_update_opt,
-                                   lex->fk_match_option,
-                                    $4));
-            if (unlikely(key == NULL))
-              MYSQL_YYABORT;
-            /*
-              handle_if_exists_options() expectes the two keys in this order:
-              the Foreign_key, followed by its auto-generated Key.
-            */
-            lex->alter_info.key_list.push_back(key, thd->mem_root);
-            lex->alter_info.key_list.push_back(Lex->last_key, thd->mem_root);
-            lex->option_list= NULL;
+            if (unlikely(add_foreign_key_to_list(Lex, $5.str ? &$5 : &$1,
+                                                 $1.str ? &$1 : &$5, $10, $4)))
+               MYSQL_YYABORT;
+            Lex->option_list= NULL;
 
             /* Only used for ALTER TABLE. Ignored otherwise. */
-            lex->alter_info.flags|= ALTER_ADD_FOREIGN_KEY;
+            Lex->alter_info.flags|= ALTER_ADD_FOREIGN_KEY;
           }
 	;
 

@@ -4867,5 +4867,8 @@ bool sp_create_assignment_instr(THD *thd, bool no_lookahead,
 
 void mark_or_conds_to_avoid_pushdown(Item *cond);
 
+int add_foreign_key_to_list(LEX *lex, const LEX_CSTRING *name,
+                            const LEX_CSTRING *constraint_name,
+                            Table_ident *table_name, DDL_options ddl_options);
 #endif /* MYSQL_SERVER */
 #endif /* SQL_LEX_INCLUDED */
