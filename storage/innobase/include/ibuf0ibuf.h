@@ -41,6 +41,7 @@ ibuf_insert(). DO NOT CHANGE THE VALUES OF THESE, THEY ARE STORED ON DISK. */
 typedef enum {
 	IBUF_OP_INSERT = 0,
 	IBUF_OP_DELETE_MARK = 1,
+	/** This one could exist in the change buffer after an upgrade */
 	IBUF_OP_DELETE = 2,
 
 	/* Number of different operation types. */
@@ -54,7 +55,8 @@ enum ibuf_use_t {
 	IBUF_USE_INSERT,	/* insert */
 	IBUF_USE_DELETE_MARK,	/* delete */
 	IBUF_USE_INSERT_DELETE_MARK,	/* insert+delete */
-	IBUF_USE_DELETE,	/* delete+purge */
+	/** same as IBUF_USE_DELETE_MARK */
+	IBUF_USE_DELETE,
 	IBUF_USE_ALL		/* insert+delete+purge */
 };
 

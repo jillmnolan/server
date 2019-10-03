@@ -442,7 +442,7 @@ static const char* innodb_change_buffering_names[] = {
 	"inserts",	/* IBUF_USE_INSERT */
 	"deletes",	/* IBUF_USE_DELETE_MARK */
 	"changes",	/* IBUF_USE_INSERT_DELETE_MARK */
-	"purges",	/* IBUF_USE_DELETE */
+	"purges",	/* IBUF_USE_DELETE (same as IBUF_USE_DELETE_MARK) */
 	"all",		/* IBUF_USE_ALL */
 	NullS
 };

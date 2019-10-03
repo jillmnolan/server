@@ -2617,69 +2617,23 @@ ibuf_contract_after_insert(
 	} while (size > 0 && sum_sizes < entry_size);
 }
 
-/*********************************************************************//**
-Determine if an insert buffer record has been encountered already.
-@return TRUE if a new record, FALSE if possible duplicate */
-static
-ibool
-ibuf_get_volume_buffered_hash(
-/*==========================*/
-	const rec_t*	rec,	/*!< in: ibuf record in post-4.1 format */
-	const byte*	types,	/*!< in: fields */
-	const byte*	data,	/*!< in: start of user record data */
-	ulint		comp,	/*!< in: 0=ROW_FORMAT=REDUNDANT,
-				nonzero=ROW_FORMAT=COMPACT */
-	ulint*		hash,	/*!< in/out: hash array */
-	ulint		size)	/*!< in: number of elements in hash array */
-{
-	ulint		len;
-	ulint		fold;
-	ulint		bitmask;
-
-	len = ibuf_rec_get_size(
-		rec, types,
-		rec_get_n_fields_old(rec) - IBUF_REC_FIELD_USER, comp);
-	fold = ut_fold_binary(data, len);
-
-	hash += (fold / (CHAR_BIT * sizeof *hash)) % size;
-	bitmask = static_cast<ulint>(1) << (fold % (CHAR_BIT * sizeof(*hash)));
-
-	if (*hash & bitmask) {
-
-		return(FALSE);
-	}
-
-	/* We have not seen this record yet.  Insert it. */
-	*hash |= bitmask;
-
-	return(TRUE);
-}
-
 #ifdef UNIV_DEBUG
-# define ibuf_get_volume_buffered_count(mtr,rec,hash,size,n_recs)	\
-	ibuf_get_volume_buffered_count_func(mtr,rec,hash,size,n_recs)
+# define ibuf_get_volume_buffered_count(mtr, rec) \
+	ibuf_get_volume_buffered_count_func(mtr, rec)
 #else /* UNIV_DEBUG */
-# define ibuf_get_volume_buffered_count(mtr,rec,hash,size,n_recs)	\
-	ibuf_get_volume_buffered_count_func(rec,hash,size,n_recs)
+# define ibuf_get_volume_buffered_count(mtr, rec) \
+	ibuf_get_volume_buffered_count_func(rec)
 #endif /* UNIV_DEBUG */
 
-/*********************************************************************//**
-Update the estimate of the number of records on a page, and
-get the space taken by merging the buffered record to the index page.
+/** Determine the space taken by merging the buffered record to the index page.
+@param rec	change buffer record
 @return size of index record in bytes + an upper limit of the space
 taken in the page directory */
-static
-ulint
-ibuf_get_volume_buffered_count_func(
-/*================================*/
+static ulint ibuf_get_volume_buffered_count_func(
 #ifdef UNIV_DEBUG
-	mtr_t*		mtr,	/*!< in: mini-transaction owning rec */
-#endif /* UNIV_DEBUG */
-	const rec_t*	rec,	/*!< in: insert buffer record */
-	ulint*		hash,	/*!< in/out: hash array */
-	ulint		size,	/*!< in: number of elements in hash array */
-	lint*		n_recs)	/*!< in/out: estimated number of records
-				on the page that rec points to */
+	mtr_t* mtr, /*!< mini-transaction */
+#endif
+	const rec_t* rec)
 {
 	ulint		len;
 	ibuf_op_t	ibuf_op;
@@ -2715,21 +2669,12 @@ ibuf_get_volume_buffered_count_func(
 	default:
 		ut_error;
 	case 0:
-		/* This ROW_TYPE=REDUNDANT record does not include an
-		operation counter.  Exclude it from the *n_recs,
-		because deletes cannot be buffered if there are
-		old-style inserts buffered for the page. */
-
 		len = ibuf_rec_get_size(rec, types, n_fields, 0);
 
 		return(len
 		       + rec_get_converted_extra_size(len, n_fields, 0)
 		       + page_dir_calc_reserved_space(1));
 	case 1:
-		/* This ROW_TYPE=COMPACT record does not include an
-		operation counter.  Exclude it from the *n_recs,
-		because deletes cannot be buffered if there are
-		old-style inserts buffered for the page. */
 		goto get_volume_comp;
 
 	case IBUF_REC_INFO_SIZE:
@@ -2739,35 +2684,14 @@ ibuf_get_volume_buffered_count_func(
 
 	switch (ibuf_op) {
 	case IBUF_OP_INSERT:
-		/* Inserts can be done by updating a delete-marked record.
-		Because delete-mark and insert operations can be pointing to
-		the same records, we must not count duplicates. */
-	case IBUF_OP_DELETE_MARK:
-		/* There must be a record to delete-mark.
-		See if this record has been already buffered. */
-		if (n_recs && ibuf_get_volume_buffered_hash(
-			    rec, types + IBUF_REC_INFO_SIZE,
-			    types + len,
-			    types[IBUF_REC_OFFSET_FLAGS] & IBUF_REC_COMPACT,
-			    hash, size)) {
-			(*n_recs)++;
-		}
-
-		if (ibuf_op == IBUF_OP_DELETE_MARK) {
-			/* Setting the delete-mark flag does not
-			affect the available space on the page. */
-			return(0);
-		}
 		break;
+	case IBUF_OP_DELETE_MARK:
+		return 0;
 	case IBUF_OP_DELETE:
-		/* A record will be removed from the page. */
-		if (n_recs) {
-			(*n_recs)--;
-		}
 		/* While deleting a record actually frees up space,
 		we have to play it safe and pretend that it takes no
 		additional space (the record might not exist, etc.). */
-		return(0);
+		return 0;
 	default:
 		ut_error;
 	}
@@ -2810,9 +2734,6 @@ ibuf_get_volume_buffered(
 				or BTR_MODIFY_TREE */
 	ulint		space,	/*!< in: space id */
 	ulint		page_no,/*!< in: page number of an index page */
-	lint*		n_recs,	/*!< in/out: minimum number of records on the
-				page after the buffered changes have been
-				applied, or NULL to disable the counting */
 	mtr_t*		mtr)	/*!< in: mini-transaction of pcur */
 {
 	ulint		volume;
@@ -2822,8 +2743,6 @@ ibuf_get_volume_buffered(
 	const page_t*	prev_page;
 	ulint		next_page_no;
 	const page_t*	next_page;
-	/* bitmap of buffered recs */
-	ulint		hash_bitmap[128 / sizeof(ulint)];
 
 	ut_ad((pcur->latch_mode == BTR_MODIFY_PREV)
 	      || (pcur->latch_mode == BTR_MODIFY_TREE));
@@ -2832,10 +2751,6 @@ ibuf_get_volume_buffered(
 	pcur */
 
 	volume = 0;
-
-	if (n_recs) {
-		memset(hash_bitmap, 0, sizeof hash_bitmap);
-	}
 
 	rec = btr_pcur_get_rec(pcur);
 	page = page_align(rec);
@@ -2855,9 +2770,7 @@ ibuf_get_volume_buffered(
 			goto count_later;
 		}
 
-		volume += ibuf_get_volume_buffered_count(
-			mtr, rec,
-			hash_bitmap, UT_ARR_SIZE(hash_bitmap), n_recs);
+		volume += ibuf_get_volume_buffered_count(mtr, rec);
 	}
 
 	/* Look at the previous page */
@@ -2907,9 +2820,7 @@ ibuf_get_volume_buffered(
 			goto count_later;
 		}
 
-		volume += ibuf_get_volume_buffered_count(
-			mtr, rec,
-			hash_bitmap, UT_ARR_SIZE(hash_bitmap), n_recs);
+		volume += ibuf_get_volume_buffered_count(mtr, rec);
 	}
 
 count_later:
@@ -2927,9 +2838,7 @@ count_later:
 			return(volume);
 		}
 
-		volume += ibuf_get_volume_buffered_count(
-			mtr, rec,
-			hash_bitmap, UT_ARR_SIZE(hash_bitmap), n_recs);
+		volume += ibuf_get_volume_buffered_count(mtr, rec);
 	}
 
 	/* Look at the next page */
@@ -2977,9 +2886,7 @@ count_later:
 			return(volume);
 		}
 
-		volume += ibuf_get_volume_buffered_count(
-			mtr, rec,
-			hash_bitmap, UT_ARR_SIZE(hash_bitmap), n_recs);
+		volume += ibuf_get_volume_buffered_count(mtr, rec);
 	}
 }
 
@@ -3212,7 +3119,6 @@ ibuf_insert_low(
 	mem_heap_t*	heap;
 	ulint*		offsets		= NULL;
 	ulint		buffered;
-	lint		min_n_recs;
 	rec_t*		ins_rec;
 	ibool		old_bit_value;
 	page_t*		bitmap_page;
@@ -3231,7 +3137,7 @@ ibuf_insert_low(
 	ut_ad(dtuple_check_typed(entry));
 	ut_ad(!no_counter || op == IBUF_OP_INSERT);
 	ut_ad(page_id.space() == index->table->space_id);
-	ut_a(op < IBUF_OP_COUNT);
+	ut_ad(op == IBUF_OP_INSERT || op == IBUF_OP_DELETE_MARK);
 
 	do_merge = FALSE;
 
@@ -3303,44 +3209,11 @@ ibuf_insert_low(
 
 	/* Find out the volume of already buffered inserts for the same index
 	page */
-	min_n_recs = 0;
 	buffered = ibuf_get_volume_buffered(&pcur,
 					    page_id.space(),
-					    page_id.page_no(),
-					    op == IBUF_OP_DELETE
-					    ? &min_n_recs
-					    : NULL, &mtr);
+					    page_id.page_no(), &mtr);
 
 	const ulint physical_size = zip_size ? zip_size : srv_page_size;
-
-	if (op == IBUF_OP_DELETE
-	    && (min_n_recs < 2 || buf_pool_watch_occurred(page_id))) {
-		/* The page could become empty after the record is
-		deleted, or the page has been read in to the buffer
-		pool.  Refuse to buffer the operation. */
-
-		/* The buffer pool watch is needed for IBUF_OP_DELETE
-		because of latching order considerations.  We can
-		check buf_pool_watch_occurred() only after latching
-		the insert buffer B-tree pages that contain buffered
-		changes for the page.  We never buffer IBUF_OP_DELETE,
-		unless some IBUF_OP_INSERT or IBUF_OP_DELETE_MARK have
-		been previously buffered for the page.  Because there
-		are buffered operations for the page, the insert
-		buffer B-tree page latches held by mtr will guarantee
-		that no changes for the user page will be merged
-		before mtr_commit(&mtr).  We must not mtr_commit(&mtr)
-		until after the IBUF_OP_DELETE has been buffered. */
-
-fail_exit:
-		if (BTR_LATCH_MODE_WITHOUT_INTENTION(mode) == BTR_MODIFY_TREE) {
-			mutex_exit(&ibuf_mutex);
-			mutex_exit(&ibuf_pessimistic_insert_mutex);
-		}
-
-		err = DB_STRONG_FAIL;
-		goto func_exit;
-	}
 
 	/* After this point, the page could still be loaded to the
 	buffer pool, but we do not have to care about it, since we are
@@ -3363,7 +3236,14 @@ fail_exit:
 					   page_id.page_no())) {
 
 		ibuf_mtr_commit(&bitmap_mtr);
-		goto fail_exit;
+fail_exit:
+		if (BTR_LATCH_MODE_WITHOUT_INTENTION(mode) == BTR_MODIFY_TREE) {
+			mutex_exit(&ibuf_mutex);
+			mutex_exit(&ibuf_pessimistic_insert_mutex);
+		}
+
+		err = DB_STRONG_FAIL;
+		goto func_exit;
 	}
 
 	if (op == IBUF_OP_INSERT) {
@@ -3561,7 +3441,7 @@ ibuf_insert(
 		case IBUF_USE_INSERT:
 		case IBUF_USE_INSERT_DELETE_MARK:
 		case IBUF_USE_ALL:
-			goto check_watch;
+			goto mode_ok;
 		}
 		break;
 	case IBUF_OP_DELETE_MARK:
@@ -3574,22 +3454,10 @@ ibuf_insert(
 		case IBUF_USE_INSERT_DELETE_MARK:
 		case IBUF_USE_ALL:
 			ut_ad(!no_counter);
-			goto check_watch;
+			goto mode_ok;
 		}
 		break;
 	case IBUF_OP_DELETE:
-		switch (use) {
-		case IBUF_USE_NONE:
-		case IBUF_USE_INSERT:
-		case IBUF_USE_INSERT_DELETE_MARK:
-			DBUG_RETURN(false);
-		case IBUF_USE_DELETE_MARK:
-		case IBUF_USE_DELETE:
-		case IBUF_USE_ALL:
-			ut_ad(!no_counter);
-			goto skip_watch;
-		}
-		break;
 	case IBUF_OP_COUNT:
 		break;
 	}
@@ -3597,36 +3465,7 @@ ibuf_insert(
 	/* unknown op or use */
 	ut_error;
 
-check_watch:
-	/* If a thread attempts to buffer an insert on a page while a
-	purge is in progress on the same page, the purge must not be
-	buffered, because it could remove a record that was
-	re-inserted later.  For simplicity, we block the buffering of
-	all operations on a page that has a purge pending.
-
-	We do not check this in the IBUF_OP_DELETE case, because that
-	would always trigger the buffer pool watch during purge and
-	thus prevent the buffering of delete operations.  We assume
-	that the issuer of IBUF_OP_DELETE has called
-	buf_pool_watch_set(space, page_no). */
-
-	{
-		buf_pool_t*	buf_pool = buf_pool_get(page_id);
-		buf_page_t*	bpage
-			= buf_page_get_also_watch(buf_pool, page_id);
-
-		if (bpage != NULL) {
-			/* A buffer pool watch has been set or the
-			page has been read into the buffer pool.
-			Do not buffer the request.  If a purge operation
-			is being buffered, have this request executed
-			directly on the page in the buffer pool after the
-			buffered entries for this page have been merged. */
-			DBUG_RETURN(false);
-		}
-	}
-
-skip_watch:
+mode_ok:
 	entry_size = rec_get_converted_size(index, entry, 0);
 
 	if (entry_size

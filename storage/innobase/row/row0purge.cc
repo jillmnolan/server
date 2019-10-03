@@ -434,10 +434,9 @@ row_purge_remove_sec_if_poss_tree(
 	case ROW_FOUND:
 		break;
 	case ROW_BUFFERED:
-	case ROW_NOT_DELETED_REF:
-		/* These are invalid outcomes, because the mode passed
+		/* This is invalid, because the mode passed
 		to row_search_index_entry() did not include any of the
-		flags BTR_INSERT, BTR_DELETE, or BTR_DELETE_MARK. */
+		flags BTR_INSERT or BTR_DELETE_MARK. */
 		ut_error;
 	}
 
@@ -556,16 +555,8 @@ row_purge_remove_sec_if_poss_leaf(
 			: BTR_PURGE_LEAF;
 	}
 
-	/* Set the purge node for the call to row_purge_poss_sec(). */
-	pcur.btr_cur.purge_node = node;
 	if (dict_index_is_spatial(index)) {
 		rw_lock_sx_lock(dict_index_get_lock(index));
-		pcur.btr_cur.thr = NULL;
-	} else {
-		/* Set the query thread, so that ibuf_insert_low() will be
-		able to invoke thd_get_trx(). */
-		pcur.btr_cur.thr = static_cast<que_thr_t*>(
-			que_node_get_parent(node));
 	}
 
 	search_result = row_search_index_entry(
@@ -654,8 +645,6 @@ row_purge_remove_sec_if_poss_leaf(
 		/* (The index entry is still needed,
 		or the deletion succeeded) */
 		/* fall through */
-	case ROW_NOT_DELETED_REF:
-		/* The index entry is still needed. */
 	case ROW_BUFFERED:
 		/* The deletion was buffered. */
 	case ROW_NOT_FOUND:
