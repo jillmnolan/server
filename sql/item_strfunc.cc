@@ -2666,7 +2666,7 @@ const int FORMAT_MAX_DECIMALS= 30;
 
 bool Item_func_format::fix_length_and_dec()
 {
-  uint32 char_length= args[0]->max_char_length();
+  uint32 char_length= args[0]->type_handler()->Item_decimal_notation_int_digits(args[0]);
   uint32 max_sep_count= (char_length / 3) + (decimals ? 1 : 0) + /*sign*/1;
   collation.set(default_charset());
   fix_char_length(char_length + max_sep_count + decimals);
