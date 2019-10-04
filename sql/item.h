@@ -33,6 +33,56 @@
 C_MODE_START
 #include <ma_dyncol.h>
 
+class Select_limit_counters
+{
+  ha_rows select_limit_cnt, offset_limit_cnt;
+
+  public:
+    Select_limit_counters():
+       select_limit_cnt(0), offset_limit_cnt(0)
+       {};
+    Select_limit_counters(Select_limit_counters &orig):
+       select_limit_cnt(orig.select_limit_cnt),
+       offset_limit_cnt(orig.offset_limit_cnt)
+       {};
+
+   void set_limit(ha_rows limit, ha_rows offset)
+   {
+      offset_limit_cnt= offset;
+      select_limit_cnt= limit;
+      if (select_limit_cnt + offset_limit_cnt >=
+          select_limit_cnt)
+        select_limit_cnt+= offset_limit_cnt;
+      else
+        select_limit_cnt= HA_POS_ERROR;
+   }
+
+   void set_single_row()
+   {
+     offset_limit_cnt= 0;
+     select_limit_cnt= 1;
+   }
+
+   bool is_unlimited()
+   { return select_limit_cnt == HA_POS_ERROR; }
+   bool is_unrestricted()
+   { return select_limit_cnt == HA_POS_ERROR && offset_limit_cnt == 0; }
+   void set_unlimited()
+   { select_limit_cnt= HA_POS_ERROR; offset_limit_cnt= 0; }
+
+   bool check_offset(ha_rows sent)
+   {
+     return sent < offset_limit_cnt;
+   }
+   void remove_offset() { offset_limit_cnt= 0; }
+
+   ha_rows get_select_limit()
+   { return select_limit_cnt; }
+   ha_rows get_offset_limit()
+   { return offset_limit_cnt; }
+};
+
+
 /*
   A prototype for a C-compatible structure to store a value of any data type.
   Currently it has to stay in /sql, as it depends on String and my_decimal.

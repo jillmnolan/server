@@ -829,50 +829,6 @@ void create_explain_query(LEX *lex, MEM_ROOT *mem_root);
 void create_explain_query_if_not_exists(LEX *lex, MEM_ROOT *mem_root);
 bool print_explain_for_slow_log(LEX *lex, THD *thd, String *str);
 
-class Select_limit_counters
-{
-  ha_rows select_limit_cnt, offset_limit_cnt;
-
-  public:
-    Select_limit_counters():
-       select_limit_cnt(0), offset_limit_cnt(0)
-       {};
-
-   void set_limit(ha_rows limit, ha_rows offset)
-   {
-      offset_limit_cnt= offset;
-      select_limit_cnt= limit;
-      if (select_limit_cnt + offset_limit_cnt >=
-          select_limit_cnt)
-        select_limit_cnt+= offset_limit_cnt;
-      else
-        select_limit_cnt= HA_POS_ERROR;
-   }
-
-   void set_single_row()
-   {
-     offset_limit_cnt= 0;
-     select_limit_cnt= 1;
-   }
-
-   bool is_unlimited()
-   { return select_limit_cnt == HA_POS_ERROR; }
-   void set_unlimited()
-   { select_limit_cnt= HA_POS_ERROR; offset_limit_cnt= 0; }
-
-   bool check_offset(ha_rows sent)
-   {
-     return sent < offset_limit_cnt;
-   }
-   void remove_offset() { offset_limit_cnt= 0; }
-
-   ha_rows get_select_limit()
-   { return select_limit_cnt; }
-   ha_rows get_offset_limit()
-   { return offset_limit_cnt; }
-};
-
-
 class st_select_lex_unit: public st_select_lex_node {
 protected:
   TABLE_LIST result_table_list;
