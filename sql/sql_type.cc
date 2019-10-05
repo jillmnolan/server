@@ -176,6 +176,8 @@ const Type_collection *Type_handler_row::type_collection() const
 }
 
 
+extern Type_collection *type_collection_inet_ptr;
+
 bool Type_handler_data::init()
 {
 #ifdef HAVE_SPATIAL
@@ -203,9 +205,11 @@ Type_handler::handler_by_name(THD *thd, const LEX_CSTRING &name)
     return ph;
   }
 
+  const Type_handler *ha;
+  if ((ha= type_collection_inet_ptr->handler_by_name(name)))
+    return ha;
 #ifdef HAVE_SPATIAL
-  const Type_handler *ha= type_collection_geometry.handler_by_name(name);
-  if (ha)
+  if ((ha= type_collection_geometry.handler_by_name(name)))
     return ha;
 #endif
   return NULL;
