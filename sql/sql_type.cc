@@ -3536,9 +3536,6 @@ uint32
 Type_handler_bit::Item_decimal_notation_int_digits(const Item *item)
                                                               const
 {
-  // WIP
-  //Item_field *ifp= reinterpret_cast<Item_field*>(const_cast<Item*>(item));
-  //return ifp->field->max_display_length();
   return Bit_decimal_notation_int_digits(item);
 }
 
@@ -3559,7 +3556,7 @@ Type_handler_general_purpose_int::Item_decimal_notation_int_digits(
 uint32
 Type_handler_bit::Bit_decimal_notation_int_digits(const Item *item)
 {
-    return item->max_length/3+1;
+  return item->max_length/3+1;
 }
 
 /*************************************************************************/
